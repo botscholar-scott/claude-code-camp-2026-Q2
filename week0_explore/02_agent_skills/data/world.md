@@ -70,7 +70,7 @@
 
 | Shop | Location | Sells |
 |---|---|---|
-| Bakery | North of central Main St | Bread, Danish (food) |
+| Bakery | North of central Main St | Danish pastry (7g), Bread (15g), Waybread (75g) — all unlimited stock. Baker NPC present. Only exit: south. |
 | Armory | South of central Main St | Armor, helmets, shields |
 | Magic Shop | North of western Main St | Magic items |
 | Weapon Shop | North of far-east Main St | Weapons |
