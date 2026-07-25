@@ -45,7 +45,9 @@ it knows when to reach for it, a parameter schema, and the code that runs.
 
 **Parameters**
 : A tool's arguments, expressed as a JSON-Schema properties map. Becomes the
-provider's `input_schema.properties`.
+provider's `input_schema.properties`. A tool separately declares which of its
+parameters are **required**; the rest are optional, and a tool that says nothing
+requires all of them.
 
 **Message**
 : One unit of conversation — who spoke, what was said, and, for a tool result,
@@ -83,6 +85,24 @@ call, which a caller may narrow.
 **Dispatch**
 : Looking a tool up by name and running its handler with the arguments the agent
 supplied. Fails loudly on an unregistered name.
+
+**Backend**
+: The provider-specific half of an API call: it knows one provider's payload
+shape, its endpoint, its headers, and which models it supports. It **serializes;
+it does not send.**
+
+**Payload**
+: The plain data structure a provider's API expects for one call — the serialized
+form of a context, a tool set, and the call's limits.
+
+**Prompt builder**
+: The object that joins a context and a tool catalog to a backend and produces a
+payload. It is the seam where conversation, capability, and provider meet.
+
+**Context window**
+: A model's total token ceiling for one call, input and output together — a fact
+about the model, looked up, never configured. Distinct from the **max output
+tokens** a single response may use.
 
 **Step**
 : One numbered rung of the ladder (`00_config`, `01_struct_skeleton`, …). Each
