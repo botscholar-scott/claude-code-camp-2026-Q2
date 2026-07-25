@@ -1,37 +1,37 @@
-"""The context: everything one API call needs, and the one mutable object here."""
+"""The context: the conversation half of an API call, and the one mutable object here."""
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
-from types import MappingProxyType
+from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 from .message import Message, Role
-from .tool import Tool
 
 if TYPE_CHECKING:  # for the annotation only — avoids importing the tasks package
     from .tasks.base import Task
 
 
 class Context:
-    """Everything Boukensha needs to make an API call. Nothing lives outside it.
+    """The conversation: the system prompt, the message history, and the task.
+
+    It is one half of what an API call needs. The other half is a `Registry`,
+    which holds the tools — a context has none, and the two objects hold no
+    reference to each other. See
+    `docs/adr/0004-registry-owns-the-tool-catalog.md` for why that changed at
+    step 02.
 
     A plain mutable class, not a frozen dataclass: a context is the accumulating
-    state of a run — messages arrive every turn and tools are registered at
-    startup. `Tool` and `Message` are the frozen value objects it holds. See
-    `docs/adr/0003-context-is-the-mutable-object.md`.
+    state of a run, and messages arrive every turn. `Message` is the frozen value
+    object it holds. See `docs/adr/0003-context-is-the-mutable-object.md`.
 
-    The collections are encapsulated: read them through `messages` / `tools` and
-    write through `add_message` / `register_tool`.
+    The history is encapsulated: read it through `messages`, write it through
+    `add_message`.
     """
 
     def __init__(self, *, task: Task | None = None, system: str | None = None) -> None:
         self.task = task
         self.system = system
         self._messages: list[Message] = []
-        self._tools: dict[str, Tool] = {}
-        # Built once; a fresh proxy per access would cost for nothing.
-        self._tools_view: Mapping[str, Tool] = MappingProxyType(self._tools)
 
     @property
     def messages(self) -> Sequence[Message]:
@@ -39,22 +39,10 @@ class Context:
 
         Read-only by type, not by enforcement — Python has no zero-copy
         read-only list view, and a defensive copy would be paid once per turn by
-        the agent loop. `tools` below *is* enforced; the asymmetry is deliberate.
+        the agent loop. `Registry.tools` *is* enforced; the asymmetry is
+        deliberate.
         """
         return self._messages
-
-    @property
-    def tools(self) -> Mapping[str, Tool]:
-        """The registered tools the agent may invoke, keyed by tool name."""
-        return self._tools_view
-
-    def register_tool(self, tool: Tool) -> None:
-        """Register a tool. Raises `ValueError` if the name is already taken."""
-        if tool.name in self._tools:
-            raise ValueError(
-                f"a tool named {tool.name!r} is already registered on this context"
-            )
-        self._tools[tool.name] = tool
 
     def add_message(
         self,
@@ -68,7 +56,4 @@ class Context:
 
     def __repr__(self) -> str:
         task = None if self.task is None else self.task.name
-        return (
-            f"Context(task={task!r}, turns={len(self._messages)}, "
-            f"tools={len(self._tools)})"
-        )
+        return f"Context(task={task!r}, turns={len(self._messages)})"

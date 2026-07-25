@@ -64,13 +64,25 @@ which call it answers.
 pairing must be exact or the provider rejects the call.
 
 **Context**
-: Everything one API call needs: the system prompt, the full message history, the
-registered tools, and the task that owns them. Nothing the agent needs lives
-outside it.
+: The conversation half of an API call: the system prompt, the full message
+history, and the task that owns them. What a call needs is a **context** *and* a
+**registry** — the tools live on the latter, not here.
 
 **Turn**
 : One message in the history. A context's turn count is the length of its message
 history.
+
+**Registry**
+: The catalog of tools the agent may use, and the thing that runs one when asked
+for it by name. Holds the only tool table; a context does not.
+
+**Catalog**
+: The full set of registered tools. Distinct from the set offered on any one API
+call, which a caller may narrow.
+
+**Dispatch**
+: Looking a tool up by name and running its handler with the arguments the agent
+supplied. Fails loudly on an unregistered name.
 
 **Step**
 : One numbered rung of the ladder (`00_config`, `01_struct_skeleton`, …). Each

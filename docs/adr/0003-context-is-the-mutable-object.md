@@ -1,6 +1,8 @@
 # 0003 — `Context` is the mutable object; `Tool` and `Message` are frozen
 
-**Status:** accepted
+**Status:** accepted; the tool-collection clauses are superseded by
+[ADR 0004](0004-registry-owns-the-tool-catalog.md) from step 02 onward.
+The frozen/mutable split and everything about `messages` still stand.
 **Date:** 2026-07-25
 **Applies to:** `week1_baseline/python/01_struct_skeleton` and later steps
 

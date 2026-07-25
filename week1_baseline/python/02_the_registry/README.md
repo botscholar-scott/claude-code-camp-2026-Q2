@@ -1,307 +1,365 @@
-# 01 · The Struct Skeleton (Python)
+# 02 · The Tool Registry (Python)
 
-Let's define data structures for the data we need to constantly pass around.
+The Tool Registry is how Boukensha manages what capabilities the agent can use.
 
-- `boukensha.Tool`
-- `boukensha.Message`
-- `boukensha.Context`
+It has two jobs:
 
-The Ruby step uses `Struct` because it is lightweight and reads well for
-learning. Python's equivalent is the **dataclass**, which is what `Tool` and
-`Message` are. `Context` is a plain class — it is the one thing here that
-mutates, and it encapsulates its collections so it can validate what goes in.
+1. storing tools
+2. dispatching tools when asked
 
-This is the Python port of `week1_baseline/ruby/01_struct_skeleton`, built on top
-of [step 00](../00_config/README.md). It reproduces the same behaviour but is
-written as idiomatic Python; the deliberate differences are listed under
+This is the Python port of `week1_baseline/ruby/02_the_registry`, built on top of
+[step 01](../01_struct_skeleton/README.md). It reproduces the same behaviour but
+is written as idiomatic Python; the deliberate differences are listed under
 [Divergences from the Ruby port](#divergences-from-the-ruby-port).
 
-## Design Considerations
+**Step 02 is the first step that is not purely additive.** It *removes* the tool
+table from `Context`. Step 01 is untouched and remains a valid frozen snapshot of
+the old design — see [Why the tools moved](#why-the-tools-moved).
 
-Everything new in this step is pure standard library — `dataclasses`, `enum`,
-`types`, `typing`, `collections.abc`. `requirements.txt` is unchanged from step
-00 (`PyYAML` and `python-dotenv`, both still needed by `Config`).
+## Why the tools moved
 
-Two design points are worth stating up front, because the rest follows from them:
+In the Ruby, `Registry.new(context)` takes a context and writes tools *through*
+it: the table lives on `Context`, and the registry is a thin façade over it. The
+step's own README says this is wrong:
 
-- **`Tool` and `Message` are frozen; `Context` is not.** The two value objects
-  are byte-identical in the Ruby from step 01 all the way through step 12, which
-  is what an immutable value object looks like. `Context` mutates from the
-  start and keeps gaining mutators. See
-  [ADR 0003](../../../docs/adr/0003-context-is-the-mutable-object.md).
-- **A role is a closed set, not a free string.** Ruby matches roles with
-  `case msg.role when :tool_result`, so a typo falls silently into `else` and
-  ships a bogus role to the API. `Role` is a `StrEnum` and `Message` coerces
-  through it, so a typo raises `ValueError` at the call site instead.
+> We now register tools with the Registry but our code still has direct
+> registration and tools in context. This likely should have been reworked.
+>
+> Checking the final baseline example, we did correct the issue.
+> **The context should have reference to tools[] its currently using, and the
+> full table of tools registered should live on the Registry.**
+>
+> We'll correct this manually in a future step and we will leave things place.
+
+The correction never lands. `registry.rb` is byte-identical from step 02 through
+step 12, and `context.rb` still owns `@tools` at step 12. So it is a defect the
+author named, whose fix he specified, and which nobody implemented.
+
+[ADR 0002](../../../docs/adr/0002-python-port-fixes-known-limitations.md) commits
+this port to fixing known limitations rather than carrying them forward, and the
+step named for the Registry is the cheapest possible place to change this shape.
+So here **`Registry` owns the only tool table** and `Context` has none. The full
+provenance and the rejected alternatives are in
+[ADR 0004](../../../docs/adr/0004-registry-owns-the-tool-catalog.md).
 
 ## Setup
 
-Requires **Python 3.11+** (`slots=True` on dataclasses needs 3.10, `typing.Self`
-and `enum.StrEnum` need 3.11).
+Requires **Python 3.11+**. Nothing in this step raises the floor.
 
 ```bash
 python3 -m venv .venv                                                 # at the repo root
-.venv/bin/pip install -r week1_baseline/python/01_struct_skeleton/requirements.txt
+.venv/bin/pip install -r week1_baseline/python/02_the_registry/requirements.txt
 ```
 
-The launcher uses the repo-root `.venv` when it exists and falls back to
-`python3` otherwise, so a global install works too.
+`requirements.txt` is unchanged from steps 00/01 (`PyYAML` and `python-dotenv`,
+both still needed by `Config`). Everything new in this step is pure standard
+library.
 
 ## Code Changes
 
-Additive over step 00 — `config.py`, `tasks/base.py`, `tasks/player.py`,
-`prompts/system.md` and `requirements.txt` are **byte-identical to step 00**
-(see [A note on `prompts/`](#a-note-on-prompts)).
+`config.py`, `tool.py`, `message.py`, `_repr.py`, `tasks/`, `prompts/` and
+`requirements.txt` are **byte-identical to step 01**.
 
 | File | Purpose |
 |------|---------|
-| `boukensha/tool.py` | **new** — `Tool` |
-| `boukensha/message.py` | **new** — `Role` and `Message` |
-| `boukensha/context.py` | **new** — `Context` |
-| `boukensha/_repr.py` | **new** — the shared `truncate()` used by both reprs |
-| `boukensha/__init__.py` | edited — exports `Tool`, `Message`, `Role`, `Context` |
-| `examples/example.py` | rewritten — builds a context, registers a tool, adds two messages |
+| `boukensha/registry.py` | **new** — `Registry` |
+| `boukensha/errors.py` | **new** — `BoukenshaError`, `UnknownToolError` |
+| `boukensha/context.py` | edited — **all tool state removed** |
+| `boukensha/__init__.py` | edited — exports `Registry`, `BoukenshaError`, `UnknownToolError` |
+| `examples/example.py` | rewritten — registers two tools, dispatches two, catches one unknown name |
+
+`Tool` needs no change at all. Its `handler` field was named for exactly this
+moment: `dispatch` calls `tool.handler(**args)`.
+
+## How It Works
+
+The agent NEVER calls a tool directly. It emits a structured request — a name and
+a set of arguments — and the Registry looks the tool up and runs it.
+
+```
+Agent:    "Hey registry, call move with direction='north'"
+Registry: "looking up 'move' in the tool table"
+Registry: "found it — calling the handler with the provided args"
+Registry: "here's the result"
+Agent:    "thanks buddy"
+Registry: "that's why you pay me the big tokens"
+```
 
 ---
 
-## Data Structures
+## `boukensha.Registry`
 
-### `boukensha.Tool`
-
-A capability the agent may invoke.
-
-| Field | Description |
+| Member | Description |
 |---|---|
-| `name` | The name of the tool |
-| `description` | Shown to the agent so it knows when to invoke the tool |
-| `parameters` | The arguments that need to be passed in, as a JSON-Schema properties map |
-| `handler` | The actual code that runs when the tool is called (Ruby calls this the `block`) |
+| `Registry()` | Takes no arguments. The table lives here, so there is nothing to pass in. |
+| `tools` | The registered tools, keyed by name, in registration order. Read-only. |
+| `tool(name, *, description, parameters=None)` | Decorator factory — registers the function it decorates |
+| `dispatch(name, args=None)` | Looks a tool up by name and calls its handler with `args` as keywords |
 
-`parameters` looks like this, and is what a backend passes straight through as
-the provider's `input_schema.properties`:
-
-```python
-{"direction": {"type": "string", "description": "The direction to move"}}
-```
-
-It is wrapped in a `MappingProxyType` on construction, so a frozen `Tool` is
-genuinely immutable rather than frozen with a mutable hole:
-
-```python
->>> move.parameters["direction"] = {}
-TypeError: 'mappingproxy' object does not support item assignment
-```
-
-`handler` is required. Every tool in every step is registered with one, and
-step 02's dispatch calls it unconditionally as `tool.handler(**args)`.
-
-**Examples:**
-
-```
-Tool(name='move', description='Move the player in a direction (north, s…', params=['direction'])
-Tool(name='attack', description='Attack a target in the current room', params=['target'])
-Tool(name='look', description='Look around the current room', params=[])
-Tool(name='say', description='Say something out loud to others in the …', params=['message'])
-```
-
-`params=` mirrors Ruby's label and is `list(tool.parameters)`. The description is
-cut at 40 characters, and the `…` appears **only when something was actually
-cut** — `attack` and `look` above have none.
-
-### `boukensha.Message`
-
-A single unit of conversation between the user and the agent.
-
-| Field | Description |
-|---|---|
-| `role` | Who is speaking — a `Role` member |
-| `content` | The text generated by the agent or provided by the user |
-| `tool_use_id` | Links a tool result back to the specific tool call that requested it. The API requires this pairing to be exact. |
-
-`Role` is a closed three-value set:
-
-| Member | Value | Meaning |
-|---|---|---|
-| `Role.USER` | `"user"` | the human, or a tool result being replayed as one |
-| `Role.ASSISTANT` | `"assistant"` | the model |
-| `Role.TOOL_RESULT` | `"tool_result"` | a **pseudo-role** — no provider has it; backends translate it into a provider `user` message carrying a `tool_result` content block |
-
-It is a `StrEnum`, so members *are* strings and need no conversion anywhere
-downstream: `f"{Role.USER}"` is `"user"`, `json.dumps` emits `"user"`, and
-`msg.role == "tool_result"` works as well as `msg.role == Role.TOOL_RESULT`.
-
-`Message` coerces `role` through `Role` on construction, so both of these raise
-rather than shipping a bad role to the API:
-
-```python
->>> ctx.add_message("assistnat", "…")
-ValueError: 'assistnat' is not a valid Role
->>> Message("assistnat", "…")
-ValueError: 'assistnat' is not a valid Role
-```
-
-`tool_use_id` defaults to `None` and is only set on `TOOL_RESULT` messages. It is
-**not** validated here — the pairing rule belongs to the backend that builds the
-payload (step 03+).
-
-**Examples:**
-
-```
-Message(role='user', content='Explore north and tell me what you find.')
-Message(role='assistant', content='Sure, let me head north and take a look.')
-Message(role='tool_result', tool_use_id='toolu_01X', content='You move north into a torch-lit corridor.')
-```
-
-`tool_use_id` is omitted when absent, mirroring Ruby's conditional `id_tag`.
-Content is cut at 60 characters, with the same ellipsis-only-when-cut rule.
-
-### `boukensha.Context`
-
-Holds everything Boukensha needs to make an API call. Nothing lives outside it.
-
-| Field | Description |
-|---|---|
-| `task` | The resolved `Task` instance that owns this run (a `Player`) |
-| `system` | Tells the agent what its job is. Sent as a separate field in the API call, never inside the messages array. |
-| `messages` | The full conversation history, replayed on every turn |
-| `tools` | The registered tools the agent is allowed to invoke, keyed by name |
-
-`task` and `system` are constructor keyword arguments; the two collections start
-empty and are written through methods:
+`Registry` holds no reference to a `Context`, and `Context` holds none to a
+`Registry`. They are orthogonal — a context is the conversation, a registry is
+the capability set — and the caller composes them:
 
 ```python
 ctx = Context(task=player, system=player.system_prompt)
-
-ctx.register_tool(tool)                                    # -> None
-ctx.add_message("user", "Explore north.")                  # -> None
-ctx.add_message("tool_result", "…", tool_use_id="toolu_01X")
-
-ctx.messages          # Sequence[Message]
-ctx.tools             # Mapping[str, Tool]
-len(ctx.messages)     # the turn count
-len(ctx.tools)        # the tool count
+registry = Registry()
 ```
 
-`system` is an independent field, never derived from `task.system_prompt`. It
-looks redundant today, but it is the field that survives: step 12 removes `task`
-and keeps `system`.
+Step 03's `PromptBuilder` takes both, and step 05's `Agent(context=…, registry=…)`
+already has that shape in the Ruby.
 
-`register_tool` **raises on a duplicate name** rather than replacing silently:
+### Registering a tool
+
+Ruby attaches the handler with a trailing block. Python has no block, so the
+handler arrives as the decorated function:
 
 ```python
->>> ctx.register_tool(move); ctx.register_tool(move)
-ValueError: a tool named 'move' is already registered on this context
+@registry.tool(
+    "move",
+    description="Move the player in a direction (north, south, east, west, up, down)",
+    parameters={"direction": {"type": "string", "description": "The direction to move"}},
+)
+def move(direction):
+    return f"You move {direction} into a torch-lit corridor."
 ```
 
-Step 10 merges three tool libraries into one context. A name collision there is a
-bug you want at startup, not one you debug from odd agent behaviour.
+The decorator **returns the function unchanged**, so `move` stays a plain
+callable you can invoke and test directly:
 
-**Example:**
+```python
+>>> move("north")
+'You move north into a torch-lit corridor.'
+```
+
+Ruby's `registry.tool(...)` returns the `Tool` instead. Ours is reachable as
+`registry.tools["move"]` when it is wanted. The reasoning, including why there is
+no `handler=` keyword alternative, is in
+[ADR 0005](../../../docs/adr/0005-tools-register-via-decorator.md).
+
+`parameters` is optional and defaults to `None`, not `{}` — no mutable default.
+A tool with no arguments just omits it:
+
+```python
+@registry.tool("look", description="Look around the current room")
+def look():
+    return "A torch-lit corridor."
+```
+
+Per-argument `description` strings are worth writing. Step 03's backends pass
+`parameters` straight through as `input_schema.properties`, so that string is how
+the model learns what the argument means. (Ruby's step-02 example drops the inner
+`description` its own step-01 example had; this port keeps it.)
+
+### `tools` is read-only
+
+`tools` is a `MappingProxyType` built once in `__init__` — the same pattern
+`Context` used at step 01 for the table that now lives here:
+
+```python
+>>> registry.tools["x"] = some_tool
+TypeError: 'mappingproxy' object does not support item assignment
+```
+
+There is no `tool_names()` method. `list(registry.tools)` and
+`len(registry.tools)` say it in the language the reader already knows, which is
+the same call step 01 made for `turn_count` / `tool_count`.
+
+### Dispatch
+
+```python
+>>> registry.dispatch("shout", {"message": "dragon spotted"})
+'DRAGON SPOTTED'
+>>> registry.dispatch("look")
+'A torch-lit corridor.'
+```
+
+`args` is optional. There is no key translation: Ruby does
+`args.transform_keys(&:to_sym)` because its blocks want symbols, and Python
+kwargs are already strings.
+
+---
+
+## Errors
 
 ```
-Context(task='player', turns=2, tools=1)
+BoukenshaError
+└── UnknownToolError
 ```
 
-## Mutability
+`BoukenshaError` is a base class Ruby does not have. It costs one line, lets a
+caller write `except BoukenshaError`, and the ladder shows it will be wanted —
+step 03 adds an unsupported-model error and step 05 adds two more. Retrofitting a
+base once those are in use would change their MRO.
 
-`Tool` and `Message` are `@dataclass(frozen=True, slots=True)` — assigning to a
-field raises `FrozenInstanceError`, and `Tool.parameters` is a read-only mapping,
-so they are immutable all the way down.
+`UnknownToolError` is raised when `dispatch` is given a name that has no
+registered tool. A harness needs explicit error boundaries; an unrecognised tool
+name should never silently fail.
 
-`Context` is a plain mutable class. It is the accumulating state of a run:
-messages arrive every turn, and later steps add `clear_messages`, compaction, and
-token counters. Its *collections* are still encapsulated — `tools` is exposed as
-a `MappingProxyType` built once in `__init__`, so `ctx.tools["x"] = t` raises
-`TypeError`. `messages` is typed `Sequence[Message]` but returns the live list;
-Python has no zero-copy read-only list view, and a defensive copy on every access
-would be paid once per turn by the agent loop for no real gain. That asymmetry is
-deliberate.
+```python
+>>> registry.dispatch("flee")
+UnknownToolError: No tool registered as 'flee'
+```
 
-The reasoning is recorded in
-[ADR 0003](../../../docs/adr/0003-context-is-the-mutable-object.md).
+It is deliberately **not** a `KeyError` subclass, even though a failed lookup is
+the obvious reading and `except KeyError` would then work. `KeyError.__str__`
+returns the *repr* of its argument, so the message would print wrapped in a
+second set of quotes:
 
-## A note on `prompts/`
+```
+# if it subclassed KeyError
+UnknownToolError caught: "No tool registered as 'flee'"
 
-The Ruby step 01 **deletes** `prompts/system.md` and `Config::PROMPTS_DIR`, and
-its example drops the `default_prompts_dir:` argument — so with a fresh
-`BOUKENSHA_DIR` there is no system prompt at all. Step 03's example passes
-`default_prompts_dir: Boukensha::Config::PROMPTS_DIR` again, which makes the
-deletion a round trip rather than a lesson.
+# as written
+UnknownToolError caught: No tool registered as 'flee'
+```
 
-This port **keeps both**. A step is meant to be a self-contained, runnable tree,
-and that is not true of a step that ships no default prompt. The consequence is
-that `config.py`, `tasks/` and `prompts/` are unchanged from step 00, and this
-step's diff over step 00 is purely additive.
+**Duplicate registration is a plain `ValueError`**, not a Boukensha error. It is
+a programmer error at startup — you took a name that was already taken — and
+`ValueError` is precisely that. Step 01 raised the same error from
+`Context.register_tool`; only the owner moved.
+
+```python
+>>> @registry.tool("move", description="…")
+... def move_again(direction): ...
+ValueError: a tool named 'move' is already registered
+```
+
+Note that this fires when the decorator is *applied*, at `def` time — so a
+collision surfaces at import, not at dispatch. Step 10 merges three tool
+libraries into one registry, which is exactly where you want that.
+
+---
+
+## What `Context` lost
+
+`Context` no longer has `_tools`, `tools`, or `register_tool`, and its repr no
+longer counts tools:
+
+```python
+>>> ctx.tools
+AttributeError: 'Context' object has no attribute 'tools'
+>>> ctx.register_tool
+AttributeError: 'Context' object has no attribute 'register_tool'
+>>> ctx
+Context(task='player', turns=0)
+```
+
+What remains is `task`, `system`, `messages`, and `add_message`.
+
+The tool count is `len(registry.tools)` — which is what step 11's TUI will read
+in place of the Ruby's `context.tool_count`.
+
+[ADR 0003](../../../docs/adr/0003-context-is-the-mutable-object.md) describes the
+old shape and is **not** edited: it stays exactly true of
+`week1_baseline/python/01_struct_skeleton`, which is a frozen, self-contained
+tree. Only its Status line now points at ADR 0004. Most of 0003 — the
+frozen/mutable split, and everything about `messages` — still stands unchanged.
 
 ## A note on `token_budget`
 
-The Ruby step 01 README lists a `token_budget` field on `Context` and every
-printed example shows `budget=8192`. **It is not implemented** — not at step 01,
-and not at any step through step 12. A real run of the Ruby prints
-`#<Context task=player turns=2 tools=1>`, with no budget.
+The Ruby step-02 README shows `Context: #<Context turns=0 tools=2 budget=8192>`.
+As at step 01, **`budget` is not implemented at any step**, and step 12's README
+retracts the idea outright — `8192` was the *output* `max_tokens` mistaken for
+the context window. The Ruby README also drops the `task=` its own code prints.
 
-Step 12's README then retracts the idea outright: `8192` was the *output*
-`max_tokens` mistaken for the context window, and it is replaced there by
-`context_window` (200,000) plus `current_tokens`. So it is not merely
-unimplemented, it is a documented modelling error — so this port does not carry
-it. Nothing decided here; upstream already recorded the correction.
+A real run of `./week1_baseline/bin/ruby/02_the_registry` prints
+`#<Context task=player turns=0 tools=2>`. Neither README line is what the code
+does; ours below is generated from an actual run.
+
+## Considerations
+
+**Unknown arguments raise `TypeError` from Python itself.** Nothing is guarded,
+which matches the Ruby:
+
+```python
+>>> registry.dispatch("move", {"drection": "north"})
+TypeError: move() got an unexpected keyword argument 'drection'. Did you mean 'direction'?
+```
+
+**Handler exceptions propagate uncaught**, also as in Ruby. Turning a tool
+failure into a tool *result* the model can read is step 05's `handle_tool_calls`;
+the registry's job is to dispatch, not to recover.
+
+**Ruby's string→symbol translation has no Python analogue.** Its
+`## Considerations` section makes the string-key/symbol-key gotcha visible as a
+lesson. In Python there is nothing to make visible: `handler(**args)` takes
+string keys, which is what the API returns.
 
 ## Run Example
 
 ```bash
-./week1_baseline/bin/python/01_struct_skeleton
+./week1_baseline/bin/python/02_the_registry
 ```
 
 Actual output against this repo's `.boukensha/` fixture:
 
 ```
-=== Boukensha Step 1: Struct Skeleton ===
+=== Boukensha Step 2: The Tool Registry ===
 
 Config:   Config(dir='/Users/scott/src/GITROOT/botscholar-scott/claude-code-camp-2026-Q2/.boukensha', tasks=['player'])
-Context:  Context(task='player', turns=2, tools=1)
-Tool:     Tool(name='move', description='Move the player in a direction (north, s…', params=['direction'])
-Messages:
-  Message(role='user', content='Explore north and tell me what you find.')
-  Message(role='assistant', content='Sure, let me head north and take a look.')
+Context:  Context(task='player', turns=0)
+Tools:
+  Tool(name='move', description='Move the player in a direction (north, s…', params=['direction'])
+  Tool(name='shout', description='Shout a message so everyone in the zone …', params=['message'])
+
+Dispatching 'shout' with message='dragon spotted'...
+Result: DRAGON SPOTTED
+
+Dispatching 'move' with direction='north'...
+Result: You move north into a torch-lit corridor.
+
+UnknownToolError caught: No tool registered as 'flee'
 ```
 
-Compare with `./week1_baseline/bin/ruby/01_struct_skeleton`:
+Compare with `./week1_baseline/bin/ruby/02_the_registry`:
 
 ```
-Config:   #<Boukensha::Config dir=/Users/…/.boukensha tasks=player>
-Context:  #<Context task=player turns=2 tools=1>
-Tool:     #<Tool name=move description=Move the player in a direction (north, so params=[:direction]>
-Messages:
-  #<Message role=user content=Explore north and tell me what you find....>
-  #<Message role=assistant content=Sure, let me head north and take a look....>
+=== BOUKENSHA Step 2: Tool Registry ===
+
+Config:  #<Boukensha::Config dir=/Users/…/.boukensha tasks=player>
+Context: #<Context task=player turns=0 tools=2>
+Tools:
+  #<Tool name=move description=Move the player in a direction (north, so params=[:direction]>
+  #<Tool name=shout description=Shout a message so everyone in the zone c params=[:message]>
+
+Dispatching 'shout' with message='dragon spotted'...
+Result: DRAGON SPOTTED
+
+Dispatching 'move' with direction='north'...
+Result: You move north into a torch-lit corridor.
+
+UnknownToolError caught: No tool registered as 'flee'
 ```
 
-Same three numbers on the context line, and no `budget=` on either. Note the
-Ruby's `find....` — four dots, because `Message#to_s` appends `"..."`
-unconditionally and that 40-character string was never truncated. We print
-`find.`.
+Both dispatch results are identical, both list `move` then `shout` in
+registration order, and both catch the unknown name rather than dying on it. The
+one substantive difference is the context line: no `tools=2`, because this
+context does not own any.
+
+The `Context` here is **inert** — it is built and printed to show step 01's work
+carrying forward and to make the repr change visible, but nothing in step 02
+touches it. The context carries the conversation, the registry carries the
+capabilities, and step 03 is where they meet.
 
 ## Divergences from the Ruby port
 
-Step 00's divergences (ADR 0001/0002) all still apply. These are the rows step 01
-adds.
+Steps 00 and 01's divergences all still apply. These are the rows step 02 adds.
 
 | # | Ruby | This port | Why |
 |---|---|---|---|
-| 1 | `Context` documents `token_budget` (`budget=8192`) | field absent | never implemented at any step; step 12's README retracts it as output `max_tokens` mistaken for the context window |
-| 2 | `Context#task` holds the task **class** | holds the resolved `Task` **instance** | ADR 0001 makes `Task` data; removes step 05's class-plus-settings-hash dance |
-| 3 | `Tool` field `block` | `handler` | "block" is a Ruby language concept with no Python meaning |
-| 4 | `role` is a bare symbol; a typo falls into `case`'s `else` | `Role(StrEnum)`, coerced on construction | a bad role raises `ValueError` at the call site instead of shipping to the API |
-| 5 | `attr_reader :messages, :tools` hands out the live Array/Hash | read-only accessors; mutation via `register_tool` / `add_message` | makes the duplicate check in #6 possible at all |
-| 6 | `register_tool` replaces silently | raises `ValueError` on a duplicate name | step 10 merges three tool libraries into one context; a collision is a startup bug, not an agent-behaviour mystery |
-| 7 | `parameters` is a plain mutable Hash on a `Struct` | `MappingProxyType` on a frozen dataclass | frozen with a mutable hole is not frozen |
-| 8 | `turn_count` / `tool_count` methods | `len(ctx.messages)` / `len(ctx.tools)` | Python spelling; `turn_count` has no consumer, `tool_count` has one (step 11's TUI) |
-| 9 | `#<Tool …>` / `#<Message …>` / `#<Context …>` | `Tool(…)` / `Message(…)` / `Context(…)` | continues step 00's divergence #10; mixing the two styles in one program would be incoherent |
-| 10 | `to_s` and `inspect` defined separately | `__repr__` only | Python's `__str__` falls back to `__repr__`, so one method covers both |
-| 11 | truncates at 41 / 61 chars (inclusive ranges) | 40 / 60 | the Ruby counts are an inclusive-range artifact |
-| 12 | `Message#to_s` always appends `"..."` | appends `…` only when text was cut | the Ruby prints `find....` for a 40-character string that was never truncated |
-| 13 | step 01 deletes `prompts/` and `PROMPTS_DIR` | both kept | accidental regression — step 03 restores them; a step must be self-contained |
-| 14 | `dispatch` does `args.transform_keys(&:to_sym)` before calling | `tool.handler(**args)` | Python kwargs are already strings; the Ruby symbol/string gotcha does not exist here |
+| 1 | `Context` owns `@tools`; `Registry` writes through it | `Registry` owns the only tool table; `Context` has none | the author flagged this defect and specified the fix but never shipped it; ADR 0002 fixes rather than carries |
+| 2 | `Registry.new(context)` | `Registry()` | with the table here, the argument has nothing to do |
+| 3 | `Context#register_tool` | deleted; registration is `Registry.tool` | one owner, one path |
+| 4 | `#<Context … tools=2>` | `Context(task='player', turns=0)` | an object that does not own tools should not count them |
+| 5 | trailing block attaches the handler | decorator factory | Python has no blocks; a `lambda` cannot hold step 10's multi-line closures |
+| 6 | `registry.tool` returns the `Tool` | returns the handler unchanged | the decorated name stays a callable you can invoke and test |
+| 7 | `UnknownToolError < StandardError`, flat | `BoukenshaError` base, `UnknownToolError` under it | three more errors join by step 05; retrofitting a base later changes the MRO |
+| 8 | `name.to_s` in `tool` and `dispatch` | no coercion | Ruby coerces because symbols; Python names are already `str` |
+| 9 | `args.transform_keys(&:to_sym)` | `handler(**args)` | recorded at step 01 (row 14); Python kwargs are already strings |
+| 10 | `tool_names` (author's personal fork, step 10 only) | not ported | `list(registry.tools)`; consistent with step 01's `turn_count` / `tool_count` |
+| 11 | step 02's example drops the per-argument `description` | restored | it becomes `input_schema.properties`; it is how the model reads the argument |
+| 12 | README run path `./week1_baseline/bin/01_the_registry` | correct Python path | the Ruby README's path is missing `ruby/` and carries step 01's number |
 
-Row 14 lands at step 02, but is recorded now because it is a consequence of the
-`handler` design rather than of step 02's registry.
+Rows 1–4 are one decision seen from four angles;
+[ADR 0004](../../../docs/adr/0004-registry-owns-the-tool-catalog.md) is the
+single record.
