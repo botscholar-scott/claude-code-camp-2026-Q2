@@ -35,6 +35,43 @@ file (non-secret settings), and `prompts/<task>/` (prompt overrides). Located vi
 `BOUKENSHA_DIR`, else `~/.boukensha`. It is language-agnostic — the Ruby and
 Python trees read the same one.
 
+**Tool**
+: A capability the agent may invoke: a name, a description shown to the agent so
+it knows when to reach for it, a parameter schema, and the code that runs.
+
+**Handler**
+: The callable a tool runs when it is invoked. Ruby calls this the tool's
+*block*.
+
+**Parameters**
+: A tool's arguments, expressed as a JSON-Schema properties map. Becomes the
+provider's `input_schema.properties`.
+
+**Message**
+: One unit of conversation — who spoke, what was said, and, for a tool result,
+which call it answers.
+
+**Role**
+: Who is speaking in a message. Exactly three: `user`, `assistant`,
+`tool_result`.
+
+**Tool result**
+: A **pseudo-role**. No provider has it; backends translate it into a provider
+`user` message carrying a `tool_result` content block.
+
+**Tool use id**
+: The identifier pairing a tool result to the tool call that requested it. The
+pairing must be exact or the provider rejects the call.
+
+**Context**
+: Everything one API call needs: the system prompt, the full message history, the
+registered tools, and the task that owns them. Nothing the agent needs lives
+outside it.
+
+**Turn**
+: One message in the history. A context's turn count is the length of its message
+history.
+
 **Step**
 : One numbered rung of the ladder (`00_config`, `01_struct_skeleton`, …). Each
 step is a self-contained, runnable tree with its own README and example; a step
