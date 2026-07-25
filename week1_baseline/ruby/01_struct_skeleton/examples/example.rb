@@ -1,5 +1,5 @@
 require_relative "../lib/boukensha"
-ENV["BOUKENSHA_DIR"] ||= File.expand_path("../../../.boukensha", __dir__)
+ENV["BOUKENSHA_DIR"] ||= File.expand_path("../../../../.boukensha", __dir__)
 
 config = Boukensha::Config.new
 player_settings = config.tasks(:player)
