@@ -1,4 +1,4 @@
-ENV["BOUKENSHA_DIR"] ||= File.expand_path("../../../.boukensha", __dir__)
+ENV["BOUKENSHA_DIR"] ||= File.expand_path("../../../../.boukensha", __dir__)
 require_relative "../lib/boukensha"
 require "json"
 
