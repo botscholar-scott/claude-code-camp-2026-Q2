@@ -1,7 +1,5 @@
 """The errors Boukensha raises, under one base class."""
 
-from __future__ import annotations
-
 
 class BoukenshaError(Exception):
     """Base class for every error this package raises.

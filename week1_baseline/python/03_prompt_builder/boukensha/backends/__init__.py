@@ -1,7 +1,5 @@
 """The provider seam: which backends exist, and how a task picks one."""
 
-from __future__ import annotations
-
 from collections.abc import Mapping
 from typing import TYPE_CHECKING
 

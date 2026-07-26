@@ -1,7 +1,5 @@
 """The context: everything one API call needs, and the one mutable object here."""
 
-from __future__ import annotations
-
 from collections.abc import Mapping, Sequence
 from types import MappingProxyType
 from typing import TYPE_CHECKING

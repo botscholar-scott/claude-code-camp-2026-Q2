@@ -5,8 +5,6 @@ it resolves the config directory, loads `.env`, and parses the settings file.
 What it returns is frozen, plain data — no attribute access does hidden I/O.
 """
 
-from __future__ import annotations
-
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass

@@ -1,7 +1,5 @@
 """A message: one unit of conversation, and the closed set of roles it may have."""
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 from enum import StrEnum
 

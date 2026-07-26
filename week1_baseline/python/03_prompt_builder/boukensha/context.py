@@ -1,7 +1,5 @@
 """The context: the conversation half of an API call, and the one mutable object here."""
 
-from __future__ import annotations
-
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
 

@@ -1,7 +1,5 @@
 """The registry: what the agent can do, and how one gets run."""
 
-from __future__ import annotations
-
 from collections.abc import Callable, Mapping, Sequence
 from types import MappingProxyType
 from typing import Any

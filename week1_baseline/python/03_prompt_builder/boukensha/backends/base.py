@@ -9,8 +9,6 @@ that needs it, so a backend is always fully constructed and reads nothing from
 the environment. See `docs/adr/0007-backend-holds-no-credentials.md`.
 """
 
-from __future__ import annotations
-
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from dataclasses import dataclass

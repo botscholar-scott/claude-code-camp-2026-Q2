@@ -1,16 +1,11 @@
 """The registry: what the agent can do, and how one gets run."""
 
-from __future__ import annotations
-
 from collections.abc import Callable, Mapping
 from types import MappingProxyType
-from typing import Any, TypeVar
+from typing import Any
 
 from .errors import UnknownToolError
 from .tool import Tool
-
-#: A handler passes through `tool` unchanged, so the decorated name keeps its type.
-F = TypeVar("F", bound=Callable[..., Any])
 
 
 class Registry:
@@ -36,7 +31,7 @@ class Registry:
         """The registered tools, keyed by name, in registration order."""
         return self._tools_view
 
-    def tool(
+    def tool[F: Callable[..., Any]](
         self,
         name: str,
         *,
@@ -44,6 +39,10 @@ class Registry:
         parameters: Mapping[str, Any] | None = None,
     ) -> Callable[[F], F]:
         """Decorator factory that registers the function it decorates as a tool.
+
+        `F` is bound to the decorated function's own type, so a type checker sees
+        `move` keep its signature after decoration — the handler passes through
+        unchanged.
 
         Ruby attaches the handler with a trailing block; Python has no block, so
         the handler arrives as the decorated function:

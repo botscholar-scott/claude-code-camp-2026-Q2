@@ -1,7 +1,5 @@
 """The abstract task: a role in the agentic loop bound to its own LLM."""
 
-from __future__ import annotations
-
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path

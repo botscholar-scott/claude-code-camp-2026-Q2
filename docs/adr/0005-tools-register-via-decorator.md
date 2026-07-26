@@ -134,7 +134,7 @@ distribution story that was never part of the project.
 This is the one place the phantom floor cost real code: it argued for the older,
 wordier spelling of a generic on its own merits-free grounds.
 
-**Amended decision.** From step 03, `Registry.tool` uses the PEP 695 form:
+**Amended decision.** `Registry.tool` uses the PEP 695 form:
 
 ```python
 def tool[F: Callable[..., Any]](self, name: str, *, description: str, …) -> Callable[[F], F]:
@@ -144,10 +144,36 @@ which scopes the type parameter to the method that uses it and removes both the
 module-level binding and the `typing.TypeVar` import. Behaviour is identical;
 this is a spelling change.
 
-**Unchanged:** `week1_baseline/python/02_the_registry/boukensha/registry.py` keeps
-the `TypeVar` form. Each step is a frozen, self-contained snapshot, and step 02
-is committed — so the two trees differ visibly on this line, which is the same
-convention ADR 0003 and ADR 0004 follow.
+**Applied to step 02 as well, not only step 03.** Normally an earlier step is a
+frozen snapshot and is left alone — the convention ADR 0003 and ADR 0004 follow.
+Here the opposite is correct: steps 02 and 03 ship the *same* `registry.py`, and
+step 03's README asserts which files are byte-identical to step 02. Changing only
+step 03 would falsify that claim, so the uniform edit is the one that *preserves*
+the ladder's internal consistency. The same reasoning applied to two sibling
+cleanups made at the same time:
+
+- **`from __future__ import annotations` removed from all 32 modules** across all
+  four steps. PEP 649/749 in 3.14 makes annotations lazy by default, so the
+  import is a no-op; removing it leaves `__annotations__` holding real objects
+  instead of strings.
+- **`typing.override`** (PEP 698) added to the five `AnthropicBackend` members
+  that override `Backend`. New code in step 03 only, so no earlier step is
+  affected.
 
 Everything else in this ADR — decorator-only, returning the handler unchanged,
 `parameters=None`, the rejected alternatives — stands as written.
+
+### Verification of the amendment
+
+```
+all four step examples          exit 0; output byte-identical before and after
+Registry.tool.__type_params__   (F,)
+move("north")                   'You move north.'          — still the function, not the Tool
+duplicate name                  ValueError: a tool named 'move' is already registered
+no TypeVar binding              'F' not in dir(boukensha.registry)          -> True
+@override markers               ['headers', 'to_messages', 'to_payload', 'to_tools', 'url']
+dataclasses.fields(Task)        all six fields discovered without the future import
+get_type_hints(Context.__init__) NameError: name 'Task' is not defined
+                                 — identical with and without the import; a TYPE_CHECKING
+                                   artefact, not a regression from the removal
+```

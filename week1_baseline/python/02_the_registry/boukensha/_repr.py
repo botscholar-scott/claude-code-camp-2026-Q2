@@ -1,7 +1,5 @@
 """Shared formatting helper for the value objects' `__repr__`."""
 
-from __future__ import annotations
-
 ELLIPSIS = "…"
 
 

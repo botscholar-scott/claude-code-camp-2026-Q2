@@ -33,12 +33,11 @@ python3 -m venv .venv                                                 # at the r
 both still needed by `Config`). Everything new in this step is pure standard
 library.
 
-Steps 00–02 advertise a **3.11+** floor. This step drops that claim rather than
-repeating it: there is no `pyproject.toml`, no `python_requires`, no CI and no
-consumer installing this anywhere, so a supported-version floor is documentation
-for a distribution story that does not exist. The one place it cost something —
-`Registry.tool` using `TypeVar` instead of the cleaner PEP 695 generic syntax —
-is fixed here; see [Type parameters](#type-parameters).
+Steps 00–02 used to advertise a **3.11+** floor. That claim is gone from every
+step: there is no `pyproject.toml`, no `python_requires`, no CI and no consumer
+installing this anywhere, so a supported-version floor was documentation for a
+distribution story that does not exist. Two things it had cost are fixed across
+the whole tree — see [Modernised for 3.14](#modernised-for-314).
 
 ## New Files
 
@@ -319,26 +318,39 @@ parameters, a parameter in `parameters` but absent from the signature).
 `required` is a standard JSON Schema keyword; writing it is less clever and more
 obvious.
 
-### Type parameters
+### Modernised for 3.14
 
-`Registry.tool` is generic in the decorated function's type, so a type checker
-sees `move` keep its own signature after decoration:
+Three cleanups landed with this step, applied to **every** Python step at once so
+the "byte-identical to step NN" claims stay true.
+
+**1. PEP 695 type parameters** (3.12). `Registry.tool` is generic in the
+decorated function's type, so a type checker sees `move` keep its own signature:
 
 ```python
 def tool[F: Callable[..., Any]](self, name, *, description, …) -> Callable[[F], F]:
 ```
 
-Step 02 writes the same thing the older way — a module-level
-`F = TypeVar("F", bound=Callable[..., Any])` — and
-[ADR 0005](../../../docs/adr/0005-tools-register-via-decorator.md) justified that
-choice by "keeping the floor at Python 3.11+". There is no such floor: nothing in
-this repo declares a supported version, and the only interpreter the tree has
-ever run on is the repo-root venv. The PEP 695 form scopes the type parameter to
-the method that uses it and drops both the module-level binding and the `TypeVar`
-import.
+It previously used a module-level `F = TypeVar("F", bound=Callable[..., Any])`,
+and [ADR 0005](../../../docs/adr/0005-tools-register-via-decorator.md) justified
+that by "keeping the floor at Python 3.11+" — a floor that never existed. The
+PEP 695 form scopes the parameter to the method that uses it and drops both the
+module-level binding and the `typing.TypeVar` import.
 
-Step 02's `registry.py` is **not** edited — it stays the frozen snapshot it is
-documented to be — so this is a visible difference between the two trees.
+**2. `from __future__ import annotations` removed** from all 32 modules.
+PEP 649/749 landed in **3.14**: annotations are lazily evaluated by default, so
+the import is a no-op. Removing it makes `__annotations__` hold real objects
+rather than strings — `str | None` instead of `'str | None'`.
+
+Verified rather than assumed: every step's example output is byte-identical
+before and after, `dataclasses.fields()` still discovers every field, and
+`get_type_hints(Context.__init__)` raises the *same* `NameError: name 'Task' is
+not defined` both with and without the import — because `Task` is a
+`TYPE_CHECKING`-only name either way, which is unrelated to the change.
+
+**3. `typing.override`** (PEP 698, 3.12) on all five members `AnthropicBackend`
+inherits from `Backend`. A renamed or mistyped override is now a type-check
+error instead of a silently-unused method — worth having on the class that
+exists to prove the ABC's shape.
 
 ---
 

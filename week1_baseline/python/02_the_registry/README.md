@@ -44,7 +44,9 @@ provenance and the rejected alternatives are in
 
 ## Setup
 
-Requires **Python 3.11+**. Nothing in this step raises the floor.
+Runs on the repo-root `.venv`, currently **Python 3.14.5**. The tree targets that
+interpreter only — there is no `pyproject.toml`, no `python_requires` and no CI
+declaring a supported-version floor.
 
 ```bash
 python3 -m venv .venv                                                 # at the repo root

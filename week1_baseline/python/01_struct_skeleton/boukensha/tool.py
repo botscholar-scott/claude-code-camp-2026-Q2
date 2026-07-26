@@ -1,7 +1,5 @@
 """A tool: a capability the agent may invoke."""
 
-from __future__ import annotations
-
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from types import MappingProxyType

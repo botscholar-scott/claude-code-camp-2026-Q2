@@ -4,10 +4,8 @@ Named `AnthropicBackend`, not `Anthropic`, because step 04 imports the SDK's
 `Anthropic` client into the same namespace.
 """
 
-from __future__ import annotations
-
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, override
 
 from ..message import Role
 from .base import Backend, ModelInfo
@@ -42,6 +40,7 @@ class AnthropicBackend(Backend):
         "claude-haiku-4-5-20251001": ModelInfo(  200_000,  1.0,  5.0),
     }
 
+    @override
     def to_messages(self, context: Context) -> list[dict[str, Any]]:
         """The history as Anthropic messages.
 
@@ -68,6 +67,7 @@ class AnthropicBackend(Backend):
                 messages.append({"role": message.role.value, "content": message.content})
         return messages
 
+    @override
     def to_tools(self, tools: Mapping[str, Tool]) -> list[dict[str, Any]]:
         """The catalog as Anthropic tool definitions.
 
@@ -93,6 +93,7 @@ class AnthropicBackend(Backend):
             for tool in tools.values()
         ]
 
+    @override
     def to_payload(
         self, context: Context, tools: Mapping[str, Tool], *, max_output_tokens: int
     ) -> dict[str, Any]:
@@ -105,6 +106,7 @@ class AnthropicBackend(Backend):
             "messages": self.to_messages(context),
         }
 
+    @override
     def headers(self, api_key: str) -> Mapping[str, str]:
         """Anthropic authenticates with `x-api-key`, not a bearer token."""
         return {
@@ -114,5 +116,6 @@ class AnthropicBackend(Backend):
         }
 
     @property
+    @override
     def url(self) -> str:
         return self.BASE_URL
