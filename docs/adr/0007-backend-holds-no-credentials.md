@@ -85,8 +85,23 @@ the caller does the reading, visibly.
 - **`headers` is a method, `url` is a property.** Deliberate: one takes an
   argument and one does not.
 - **Step 04's `Client` becomes the thing that holds the credential**, which is
-  the right owner — it is the object that makes the request. It finds the
-  variable name via `AnthropicBackend.API_KEY_ENV`.
+  the right owner — it is the object that makes the request.
+
+  *Amended at step 04.* This originally continued: *"It finds the variable name
+  via `AnthropicBackend.API_KEY_ENV`."* That is not what happens. A `Client` that
+  looked up a variable name and read `os.environ` would break Decision §5 above —
+  the whole point of which is that **nothing in the library reads the
+  environment**. `Client` is library code; the rule applies to it too.
+
+  What actually happens: the **example** finds the variable name via
+  `API_KEY_ENV` and asks `Config.require_secret()` for its value, then passes it
+  to a required `api_key=` keyword. `.env` is filesystem, and ADR 0001 makes
+  `Config.load()` the only thing that touches it, so its values come back through
+  `Config` rather than being left as a puddle in `os.environ`.
+
+  The amendment **strengthens rather than reverses** the original decision: the
+  credential still arrives at the object that makes the request, and there is now
+  one *more* place that reads no environment rather than one fewer.
 - **Tests need no environment fixture.** Every serialization path is reachable
   with nothing set.
 - **A backend is always fully constructed.** There is no state in which some of

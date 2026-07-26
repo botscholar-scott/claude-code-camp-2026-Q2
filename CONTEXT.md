@@ -99,6 +99,15 @@ form of a context, a tool set, and the call's limits.
 : The object that joins a context and a tool catalog to a backend and produces a
 payload. It is the seam where conversation, capability, and provider meet.
 
+**Client**
+: The object that performs one API call: it sends a payload to a provider's
+endpoint and returns the parsed response. It **transports; it does not
+serialize** — the mirror of what a **backend** does.
+
+**Attempt**
+: One HTTP request. A single call may make several — a retryable failure is
+retried — and only the last one's outcome is returned.
+
 **Context window**
 : A model's total token ceiling for one call, input and output together — a fact
 about the model, looked up, never configured. Distinct from the **max output
