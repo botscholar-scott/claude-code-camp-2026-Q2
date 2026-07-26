@@ -74,6 +74,17 @@ history, and the task that owns them. What a call needs is a **context** *and* a
 : One message in the history. A context's turn count is the length of its message
 history.
 
+**Iteration**
+: One model round-trip while the agent works: send the history, read the reply,
+dispatch any tools it asked for. A single goal takes many. `max_iterations` caps
+them; reaching the cap triggers a **wind-down**, not an error.
+
+**Wind-down**
+: The one final, tools-disabled model call the agent makes when it reaches a
+ceiling, asking for a summary of what was accomplished and what is left. It runs
+outside the counted loop and cannot re-trigger. Its purpose is that the player
+learns where their character ended up, rather than that a limit was reached.
+
 **Registry**
 : The catalog of tools the agent may use, and the thing that runs one when asked
 for it by name. Holds the only tool table; a context does not.
