@@ -5,17 +5,30 @@ module Boukensha
   # value the user sets. The agent looks it up from its configured model id; the
   # user never configures it in settings.yaml. Unknown models fall back to a
   # conservative default so an unrecognised id can't silently assume a huge window.
+  #
+  # Built from every backend's own MODELS constant rather than hand-maintained
+  # separately, so a model added to a backend is automatically sized correctly
+  # here too. Table is built lazily on first use, by which point all backends
+  # are loaded regardless of require order.
   module Models
-    TABLE = {
-      "claude-opus-4-8"   => { context_window: 200_000 },
-      "claude-sonnet-4-6" => { context_window: 200_000 },
-      "claude-haiku-4-5"  => { context_window: 200_000 },
-    }.freeze
-
     DEFAULT_CONTEXT_WINDOW = 32_000
 
+    BACKEND_CLASSES = -> {
+      [
+        Backends::Anthropic,
+        Backends::OpenAI,
+        Backends::Gemini,
+        Backends::Ollama,
+        Backends::OllamaCloud
+      ]
+    }
+
+    def self.table
+      @table ||= BACKEND_CLASSES.call.each_with_object({}) { |backend, out| out.merge!(backend::MODELS) }
+    end
+
     def self.context_window(model)
-      TABLE.dig(model.to_s, :context_window) || DEFAULT_CONTEXT_WINDOW
+      table.dig(model.to_s, :context_window) || DEFAULT_CONTEXT_WINDOW
     end
   end
 end

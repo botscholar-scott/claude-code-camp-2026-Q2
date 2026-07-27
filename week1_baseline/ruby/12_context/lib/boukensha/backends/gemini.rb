@@ -15,6 +15,21 @@ module Boukensha
           cost_per_million: { input: 0.25, output: 1.5 },
           usage_unit: :tokens
         },
+        "gemini-2.5-pro" => {
+          context_window: 1_048_576,
+          cost_per_million: { input: 1.25, output: 10.0 },
+          usage_unit: :tokens
+        },
+        "gemini-2.5-flash" => {
+          context_window: 1_048_576,
+          cost_per_million: { input: 0.30, output: 2.50 },
+          usage_unit: :tokens
+        },
+        "gemini-2.5-flash-lite" => {
+          context_window: 1_048_576,
+          cost_per_million: { input: 0.10, output: 0.40 },
+          usage_unit: :tokens
+        },
         # It has
         #"gemini-3.1-pro-preview-customtools" => {
         #  context_window: 1_048_576,

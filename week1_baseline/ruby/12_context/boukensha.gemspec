@@ -19,11 +19,9 @@ Gem::Specification.new do |spec|
   spec.bindir      = "bin"
   spec.executables = ["boukensha"]
 
-  # MUD session management and CircleMUD command primitives.
-  spec.add_dependency "mud_manager", "~> 0.1"
-
-  # TUI powered by charm (bubbletea + lipgloss + bubbles bindings).
+  # MCP servers bring their own dependencies; boukensha itself needs only
+  # `charm`, for the TUI (bubbletea + lipgloss + bubbles bindings).
   spec.add_dependency "charm"
 
-  # net/http and json are stdlib. Users supply their own ANTHROPIC_API_KEY.
+  # open3, net/http, and json are stdlib. Users supply their own ANTHROPIC_API_KEY.
 end

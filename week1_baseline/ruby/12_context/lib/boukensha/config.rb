@@ -9,13 +9,29 @@ module Boukensha
     #   2. ~/.boukensha  (default)
     DEFAULT_DIR = File.join(Dir.home, ".boukensha").freeze
 
-    attr_reader :dir, :settings, :system_prompt
+    # Default prompts shipped alongside this step.
+    PROMPTS_DIR = File.expand_path("../../../prompts", __dir__).freeze
+
+    attr_reader :dir, :settings
 
     def initialize
       @dir = resolve_dir
       load_env
-      @settings     = load_settings
-      @system_prompt = load_system_prompt
+      @settings = load_settings
+    end
+
+    # ---------- tasks -----------------------------------------------------
+
+    # With no argument: returns the full tasks hash from settings.yaml.
+    # With a name: returns that task's settings hash, e.g. tasks(:player).
+    def tasks(name = nil)
+      all = dig(:tasks) || {}
+      name ? (all[name.to_s] || all[name.to_sym]) : all
+    end
+
+    # The user's prompts directory for task prompt overrides.
+    def user_prompts_dir
+      File.join(@dir, "prompts")
     end
 
     # ---------- provider --------------------------------------------------
@@ -28,28 +44,37 @@ module Boukensha
       dig(:tasks, :player, :model) || "claude-haiku-4-5"
     end
 
-    # ---------- system prompt ---------------------------------------------
+    # ---------- MCP servers ------------------------------------------------
 
-    def system_override?
-      dig(:system, :override) == true
-    end
+    # MCP servers to plug into the agent, keyed by name. This is where ALL of
+    # the agent's tools come from — boukensha ships none of its own:
+    #
+    #   mcp_servers:
+    #     mud:
+    #       command: mud-manager
+    #       args:    [--mcp]
+    #       prefix:  tbamud
+    #       env:
+    #         MUD_HOST: your.mud.host      # a stdio server's credentials
+    #         MUD_NAME: Gandalf            # travel by environment
+    #
+    # Returns { "mud" => { command:, args:, env:, prefix:, required: } } with
+    # defaults applied. `required: false` lets a server fail to spawn without
+    # taking the agent down with it.
+    def mcp_servers
+      (dig(:mcp_servers) || {}).each_with_object({}) do |(name, raw), out|
+        entry = raw.is_a?(Hash) ? raw : {}
+        get   = ->(k) { entry[k.to_s].nil? ? entry[k.to_sym] : entry[k.to_s] }
+        req   = get.call(:required)
 
-    # ---------- MUD connection --------------------------------------------
-
-    def mud_host
-      dig(:mud, :host) || "localhost"
-    end
-
-    def mud_port
-      dig(:mud, :port) || 4000
-    end
-
-    def mud_username
-      dig(:mud, :username)
-    end
-
-    def mud_password
-      dig(:mud, :password)
+        out[name.to_s] = {
+          command:  get.call(:command).to_s,
+          args:     Array(get.call(:args)).map(&:to_s),
+          env:      (get.call(:env) || {}).each_with_object({}) { |(k, v), h| h[k.to_s] = v.to_s },
+          prefix:   get.call(:prefix)&.to_s,
+          required: req.nil? ? true : !!req
+        }
+      end
     end
 
     # ---------- agent limits ----------------------------------------------
@@ -115,20 +140,6 @@ module Boukensha
       else
         {}
       end
-    end
-
-    # Resolves the system prompt. When the player task opts into a prompt
-    # override (tasks.player.prompt_override.system: true), the task-scoped
-    # file prompts/player/system.md wins; otherwise (and as a fallback) the
-    # flat prompts/system.md is used. Returns nil when neither exists.
-    def load_system_prompt
-      if dig(:tasks, :player, :prompt_override, :system) == true
-        task_file = File.join(@dir, "prompts", "player", "system.md")
-        return File.read(task_file).strip if File.exist?(task_file)
-      end
-
-      system_file = File.join(@dir, "prompts", "system.md")
-      File.exist?(system_file) ? File.read(system_file).strip : nil
     end
   end
 end

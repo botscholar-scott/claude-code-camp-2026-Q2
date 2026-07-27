@@ -1,12 +1,26 @@
 require_relative "boukensha/version"
 require_relative "boukensha/config"
+require_relative "boukensha/tasks/player"
 
 module Boukensha
+  @quiet  = false
   @debug  = false
   @config = nil
 
   def self.config
     @config ||= Config.new
+  end
+
+  def self.quiet!
+    @quiet = true
+  end
+
+  def self.loud!
+    @quiet = false
+  end
+
+  def self.quiet?
+    @quiet
   end
 
   def self.debug!
@@ -19,23 +33,15 @@ module Boukensha
 
   # One-shot run: send a single task, get a response, return.
   #
-  # working_dir:      roots all tool calls to this directory (default: Dir.pwd).
-  #                   Registers Boukensha::Tools::FileSystem (pwd, list_directory,
-  #                   read_file, write_file, delete_file, search_files) and
-  #                   Boukensha::Tools::Shell (run_command) automatically.
-  #                   Pass working_dir: false to opt out entirely.
+  # The agent ships with NO tools of its own. Every tool it can call arrives
+  # over an MCP connection, declared in settings.yaml's `mcp_servers:` block
+  # (see Boukensha::Config#mcp_servers). Want file access? Point at a
+  # filesystem MCP server. Want to play a MUD? Point at `mud-manager --mcp`.
+  # Boukensha is the host; the servers own the tools.
   #
-  # allowed_commands: Array of shell-executable names the agent is allowed to
-  #                   run via run_command (e.g. ["ruby", "git"]).
-  #                   nil (default) permits everything — useful for demos.
-  #                   Pass an empty Array [] to disable run_command entirely.
-  #
-  # shell_timeout:    Seconds before a run_command is killed (default 30).
-  #
-  # mud:              Hash of MUD connection options — registers all MUD gameplay
-  #                   tools and keeps a single session alive across every tool call.
-  #                   When nil (default), config.mud_* values are used if mud_host
-  #                   is set in settings.yaml. Pass mud: false to disable entirely.
+  # working_dir:      Recorded on the Context as the agent's notion of "where
+  #                   it is". It registers nothing — an MCP server that touches
+  #                   the filesystem is rooted by its own spawn args.
   def self.run(
     task:,
     system:           nil,
@@ -47,16 +53,15 @@ module Boukensha
     context_window:   nil,
     max_output_tokens: nil,
     working_dir:      Dir.pwd,
-    allowed_commands: nil,
-    shell_timeout:    30,
-    mud:              nil,
     &block
   )
-    cfg     = config                           # loads .env; populates ENV
-    system  ||= cfg.system_prompt
-    model   ||= cfg.model
+    cfg           = config                           # loads .env; populates ENV
+    task_class    = Tasks::Player
+    task_settings = cfg.tasks(task_class.task_name)
+    system      ||= task_class.system_prompt(task_settings, user_prompts_dir: cfg.user_prompts_dir, default_prompts_dir: Config::PROMPTS_DIR)
+    model       ||= task_class.model(task_settings)
+    backend     ||= task_class.provider(task_settings).to_sym
     context_window ||= Models.context_window(model)
-    backend ||= cfg.provider_type.to_sym
     api_key ||= case backend
                 when :anthropic    then ENV["ANTHROPIC_API_KEY"]
                 when :openai       then ENV["OPENAI_API_KEY"]
@@ -67,15 +72,7 @@ module Boukensha
     ctx      = Context.new(system: system, context_window: context_window, working_dir: working_dir, compaction_threshold: cfg.agent_compaction_threshold)
     registry = Registry.new(ctx)
 
-    if working_dir
-      Tools::FileSystem.register(registry, working_dir: working_dir)
-      Tools::Shell.register(registry, working_dir: working_dir,
-                            timeout: shell_timeout, allowed_commands: allowed_commands)
-    end
-
-    # mud: nil means "use config if host is set"; mud: false means "skip entirely"
-    resolved_mud = mud == false ? nil : (mud || mud_opts_from_config(cfg))
-    Tools::Mud.register(registry, **resolved_mud) if resolved_mud
+    register_mcp_servers(registry, cfg)
 
     RunDSL.new(registry).instance_eval(&block) if block
 
@@ -123,17 +120,16 @@ module Boukensha
     context_window:   nil,
     max_output_tokens: nil,
     working_dir:      Dir.pwd,
-    allowed_commands: nil,
-    shell_timeout:    30,
-    mud:              nil,
     tui:              true,
     &block
   )
-    cfg     = config                           # loads .env; populates ENV
-    system  ||= cfg.system_prompt
-    model   ||= cfg.model
+    cfg           = config                           # loads .env; populates ENV
+    task_class    = Tasks::Player
+    task_settings = cfg.tasks(task_class.task_name)
+    system      ||= task_class.system_prompt(task_settings, user_prompts_dir: cfg.user_prompts_dir, default_prompts_dir: Config::PROMPTS_DIR)
+    model       ||= task_class.model(task_settings)
+    backend     ||= task_class.provider(task_settings).to_sym
     context_window ||= Models.context_window(model)
-    backend ||= cfg.provider_type.to_sym
     api_key ||= case backend
                 when :anthropic    then ENV["ANTHROPIC_API_KEY"]
                 when :openai       then ENV["OPENAI_API_KEY"]
@@ -144,14 +140,7 @@ module Boukensha
     ctx      = Context.new(system: system, context_window: context_window, working_dir: working_dir, compaction_threshold: cfg.agent_compaction_threshold)
     registry = Registry.new(ctx)
 
-    if working_dir
-      Tools::FileSystem.register(registry, working_dir: working_dir)
-      Tools::Shell.register(registry, working_dir: working_dir,
-                            timeout: shell_timeout, allowed_commands: allowed_commands)
-    end
-
-    resolved_mud = mud == false ? nil : (mud || mud_opts_from_config(cfg))
-    Tools::Mud.register(registry, **resolved_mud) if resolved_mud
+    servers = register_mcp_servers(registry, cfg)
 
     RunDSL.new(registry).instance_eval(&block) if block
 
@@ -189,7 +178,7 @@ module Boukensha
       model:      model,
       version:    VERSION,
       api_key:    api_key,
-      mud:        resolved_mud
+      servers:    servers
     )
 
     if tui && defined?(Tui)
@@ -203,19 +192,32 @@ module Boukensha
     logger&.close
   end
 
-  # Build a mud options hash from config (used when mud: nil is passed to run/repl).
-  # Returns nil if no MUD host is configured.
-  def self.mud_opts_from_config(cfg)
-    return nil unless cfg.mud_host && cfg.mud_username
-
-    {
-      host:     cfg.mud_host,
-      port:     cfg.mud_port,
-      name:     cfg.mud_username,
-      password: cfg.mud_password
-    }
+  # Register every server in settings.yaml's `mcp_servers:` block. This is the
+  # agent's ONLY source of tools — boukensha ships none of its own. Nothing
+  # here knows what any particular server does; a MUD daemon and a filesystem
+  # server are registered by the identical code path.
+  #
+  # A server marked `required: false` that fails to spawn is a warning, not a
+  # fatal error — the agent runs without its tools. A name collision is never
+  # excused that way: it means the config asks for two tools with one name, and
+  # answering by dropping one of them silently is the worst option available.
+  #
+  # Returns { server_name => tool_count } for the servers that came up.
+  def self.register_mcp_servers(registry, cfg)
+    cfg.mcp_servers.each_with_object({}) do |(name, entry), summary|
+      begin
+        client = Tools::Mcp.register(registry, command: entry[:command], args: entry[:args],
+                                               env: entry[:env], prefix: entry[:prefix])
+        summary[name] = client.tools.size
+      rescue Tools::Mcp::CollisionError
+        raise
+      rescue StandardError => e
+        raise "boukensha: MCP server '#{name}' failed to start: #{e.message}" if entry[:required]
+        warn "[boukensha] optional MCP server '#{name}' failed to start: #{e.message} — continuing without its tools"
+      end
+    end
   end
-  private_class_method :mud_opts_from_config
+  private_class_method :register_mcp_servers
 end
 
 require_relative "boukensha/tool"
@@ -236,7 +238,5 @@ require_relative "boukensha/client"
 require_relative "boukensha/agent"
 require_relative "boukensha/run_dsl"
 require_relative "boukensha/repl"
-require_relative "boukensha/tools/file_system"
-require_relative "boukensha/tools/shell"
-require_relative "boukensha/tools/mud"
+require_relative "boukensha/tools/mcp"
 require_relative "boukensha/tui"

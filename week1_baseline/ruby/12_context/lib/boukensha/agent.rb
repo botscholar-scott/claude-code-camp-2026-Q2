@@ -58,7 +58,7 @@ module Boukensha
           handle_tool_calls(parsed[:content], response)
         else
           text = extract_text(parsed[:content])
-          @logger.response(text: text, usage: response["usage"], stop_reason: parsed[:stop_reason])
+          @logger.response(text: text, usage: response["usage"], stop_reason: parsed[:stop_reason], task: nil, backend: @builder.backend)
           @logger.turn_end(reason: "completed", iterations: @iteration, tokens: @context.turn_tokens)
           @context.add_message(:assistant, text)
           return text
@@ -111,7 +111,7 @@ module Boukensha
       text        = extract_text(parsed_wrap[:content])
       text        = fallback_message(reason) if text.strip.empty?
       record_usage(response)
-      @logger.response(text: text, usage: response["usage"], stop_reason: parsed_wrap[:stop_reason])
+      @logger.response(text: text, usage: response["usage"], stop_reason: parsed_wrap[:stop_reason], task: nil, backend: @builder.backend)
       @logger.turn_end(reason: reason, iterations: @iteration, tokens: @context.turn_tokens)
       @context.add_message(:assistant, text)
       text

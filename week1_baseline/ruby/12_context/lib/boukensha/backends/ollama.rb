@@ -4,11 +4,51 @@ module Boukensha
   module Backends
     class Ollama < Base
       MODELS = {
+        "gemma4" => {
+          context_window: 128_000,
+          cost_per_million: { input: 0.0, output: 0.0 },
+          usage_unit: :local_compute
+        },
+        "gemma4:e2b" => {
+          context_window: 128_000,
+          cost_per_million: { input: 0.0, output: 0.0 },
+          usage_unit: :local_compute
+        },
         "gemma4:e4b" => {
           context_window: 128_000,
           cost_per_million: { input: 0.0, output: 0.0 },
           usage_unit: :local_compute
         },
+        "gemma4:12b" => {
+          context_window: 256_000,
+          cost_per_million: { input: 0.0, output: 0.0 },
+          usage_unit: :local_compute
+        },
+        "gemma4:26b" => {
+          context_window: 256_000,
+          cost_per_million: { input: 0.0, output: 0.0 },
+          usage_unit: :local_compute
+        },
+        "gemma4:31b" => {
+          context_window: 256_000,
+          cost_per_million: { input: 0.0, output: 0.0 },
+          usage_unit: :local_compute
+        },
+        "qwen3:30b" => {
+          context_window: 256_000,
+          cost_per_million: { input: 0.0, output: 0.0 },
+          usage_unit: :local_compute
+        },
+        "qwen3:8b" => {
+          context_window: 40_000,
+          cost_per_million: { input: 0.0, output: 0.0 },
+          usage_unit: :local_compute
+        },
+        "deepseek-r1:8b" => {
+          context_window: 128_000,
+          cost_per_million: { input: 0.0, output: 0.0 },
+          usage_unit: :local_compute
+        }
       }.freeze
 
       def initialize(host: "http://localhost:11434", model:)
