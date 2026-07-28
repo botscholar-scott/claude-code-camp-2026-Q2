@@ -6,7 +6,7 @@ module Boukensha
       @registry = registry
     end
 
-    def tool(name, description:, parameters: {}, &block)
+    def tool(name, description:, parameters: EMPTY_SCHEMA, &block)
       @registry.tool(name, description: description, parameters: parameters, &block)
     end
 

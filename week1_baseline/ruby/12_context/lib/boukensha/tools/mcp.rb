@@ -54,7 +54,7 @@ module Boukensha
           taken << local
 
           registry.tool(local, description: tool["description"].to_s,
-                               parameters: to_boukensha_params(tool["inputSchema"])) do |**kwargs|
+                               parameters: normalize_schema(tool["inputSchema"])) do |**kwargs|
             # Boukensha hands us symbol-keyed kwargs; the server wants strings.
             # Blank/omitted values are normalized server-side.
             result = client.call_tool(remote, kwargs.transform_keys(&:to_s))
@@ -69,18 +69,24 @@ module Boukensha
         p.empty? ? name.to_s : "#{p}#{SEPARATOR}#{name}"
       end
 
-      # Convert an MCP inputSchema into boukensha's `parameters` shape
-      # ({ name => { type:, description: } }). We list every property so the
-      # model can supply optional ones too (servers treat blanks as absent).
-      def self.to_boukensha_params(input_schema)
-        props = (input_schema && input_schema["properties"]) || {}
-        props.each_with_object({}) do |(pname, schema), out|
-          desc = schema["description"].to_s
-          if schema["enum"]
-            desc = "#{desc} (one of: #{schema["enum"].join(", ")})".strip
-          end
-          out[pname.to_sym] = { type: schema["type"] || "string", description: desc }
-        end
+      # An MCP server publishes a complete, correct JSON Schema for each tool.
+      # Every provider's tool format embeds a JSON Schema too, so there is
+      # nothing to convert — we carry the server's schema through untouched and
+      # the backend drops it straight into its own envelope.
+      #
+      # This used to be a lossy translation into a private
+      # `{ name => { type:, description: } }` shape, which discarded `required`
+      # (the backend then re-derived it as "everything"), dropped `default`, and
+      # flattened `enum` into prose in the description. Against mud-manager that
+      # cost 16 of 42 parameters their optionality, 14 their enum, and 5 their
+      # default — and made the 4 zero-argument tools uncallable as documented.
+      #
+      # The only normalization is supplying an empty object schema when a server
+      # omits `inputSchema`, since providers require one.
+      def self.normalize_schema(input_schema)
+        return Boukensha::EMPTY_SCHEMA unless input_schema.is_a?(Hash) && !input_schema.empty?
+
+        input_schema
       end
     end
   end

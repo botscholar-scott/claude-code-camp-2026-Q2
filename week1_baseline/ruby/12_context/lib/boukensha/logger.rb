@@ -34,11 +34,29 @@ module Boukensha
       write_log(phase: "turn_end", reason: reason, iterations: iterations, tokens: tokens)
     end
 
+    # Logs the newest message only, not the whole history.
+    #
+    # The history is re-sent to the model every iteration, so serializing all of
+    # it here made this event O(n) per iteration and O(n^2) per turn — measured
+    # at 46% of a session log, and roughly 780 KB for a single 25-iteration
+    # turn. It was also redundant: assistant text is already a `response` event,
+    # tool calls are `tool_call`, results are `tool_result`. The user's message
+    # is the only thing unique to this event, and the only thing any consumer
+    # reads (log_viz takes `messages.last` on the first prompt of a turn).
+    #
+    # `message_count` still reports the true history length, so nothing loses
+    # sight of how big the context has grown. Set BOUKENSHA_DEBUG for the full
+    # history when you need an exact replay.
     def prompt(messages:, tools:, context_window:)
+      # NB: not Array(messages.last) — Message is a Struct, and Kernel#Array
+      # calls #to_a on it, splatting it into its own members.
+      tail   = messages.last ? [messages.last] : []
+      logged = Boukensha.debug? ? messages : tail
+
       write_log(
         phase:          "prompt",
         message_count:  messages.size,
-        messages:       messages.map { |m| serialize_message(m) },
+        messages:       logged.map { |m| serialize_message(m) },
         tool_count:     tools.size,
         tools:          tools.keys,
         context_window: context_window

@@ -55,10 +55,43 @@ class TestToolsMcp < Minitest::Test
     refute ctx.tools.key?("tbamud__look")
   end
 
-  def test_schema_enum_is_surfaced_in_the_parameter_description
+  # The server's schema is the schema. Nothing translates it, so `enum`,
+  # `default` and `required` all survive as structure the API can enforce —
+  # they used to be flattened into prose, dropped, and re-derived respectively.
+  def test_the_servers_input_schema_is_carried_through_verbatim
+    ctx, registry = new_registry
+    client = register(registry)
+
+    published = client.tools.find { |t| t["name"] == "move" }["inputSchema"]
+    assert_equal published, ctx.tools["move"].parameters
+
+    enum = ctx.tools["move"].parameters.dig("properties", "direction", "enum")
+    assert_kind_of Array, enum, "enum must survive as structure, not prose"
+    assert_includes enum, "north"
+  end
+
+  # The defect this replaced: every parameter was advertised as required, so a
+  # tool documented as "call with NO arguments" was uncallable that way.
+  def test_optional_parameters_are_not_advertised_as_required
     ctx, registry = new_registry
     register(registry)
-    assert_match(/one of:.*north/, ctx.tools["move"].parameters[:direction][:description])
+
+    look = ctx.tools["look"]
+    refute_empty look.properties, "look should still declare its optional properties"
+    assert_empty look.required, "look requires nothing"
+
+    backend = Boukensha::Backends::Anthropic.new(api_key: "test", model: "claude-haiku-4-5")
+    emitted = backend.to_tools(ctx.tools).find { |t| t[:name] == "look" }
+    assert_equal look.parameters, emitted[:input_schema]
+    assert_empty(emitted[:input_schema]["required"] || [])
+  end
+
+  # A tool taking no arguments still needs a valid object schema.
+  def test_a_tool_registered_without_parameters_gets_an_empty_object_schema
+    ctx, registry = new_registry
+    registry.tool("local", description: "no args") { "ok" }
+
+    assert_equal({ "type" => "object", "properties" => {} }, ctx.tools["local"].parameters)
   end
 
   # Silent clobbering would be maddening to debug, so a collision is a hard
