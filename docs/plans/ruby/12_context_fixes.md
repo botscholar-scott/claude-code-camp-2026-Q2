@@ -164,6 +164,65 @@ applied to Ruby.
 
 ---
 
+### F34 — A tool-level MCP error is prose, so F4's fix cannot see it
+**File:** `tools/mcp.rb:61` · `mcp/client.rb:42-43` · `agent.rb:169` · **Size:** small
+
+```ruby
+# tools/mcp.rb:60-61
+result = client.call_tool(remote, kwargs.transform_keys(&:to_s))
+result[:error] ? "error: #{result[:text]}" : result[:text]
+```
+
+MCP reports failure two different ways, and the harness only notices one. A
+JSON-RPC protocol error lands in `res["error"]` and `client.rb:41` raises on it —
+that path reaches `agent.rb:170` and is what F4 is about. But a *tool-level*
+failure is returned as a *successful* JSON-RPC response carrying
+`isError: true`. `client.rb:43` reduces it to a boolean, and `mcp.rb:61` folds
+that boolean into the string as a lowercase `"error: "` prefix.
+
+Nothing raises, so **F4's fix cannot reach this path.** Catching
+`UnknownToolError`/`ArgumentError` and letting the rest propagate does nothing
+for a failure that was never an exception. Note the two stringification sites
+even disagree on spelling: `agent.rb:171` writes `"ERROR: "`, `mcp.rb:61` writes
+`"error: "`.
+
+Three consequences:
+
+- **The failure mode F4 describes still happens.** A live `mud-manager` whose
+  telnet socket has dropped returns `isError: true`, which becomes a string
+  shaped exactly like `"error: you can't go that way"` — a legitimate response
+  the model *should* shrug off and retry around. So it retries, into nothing, at
+  cost. F4 closes the dead-process door; this one stays open.
+- **The transcript records it as a success.** `agent.rb:169` runs the `ok: true`
+  branch, because `dispatch` returned normally. `log_viz` consumes that flag
+  directly (`log_viz/lib/log_viz/session.rb:133` → `tool_ok`), so the viewer
+  renders a failed call as a successful one. Any week-2 observability work
+  inherits the lie.
+- **Non-text content is dropped silently.** `client.rb:42` is
+  `Array(result["content"]).map { |c| c["text"] }.compact.join("\n")` — block
+  types are discarded and any block without a `"text"` key vanishes without
+  trace.
+
+**Fix:** stop flattening at the boundary. `Tools::Mcp`'s registered block should
+hand back the `{ text:, error: }` pair (or a small result object) rather than
+prose, `agent.rb` should pass its `error` through to `@logger.tool_result(ok:)`
+so the transcript is truthful, and only then decide what the model sees.
+
+**Deliberately not settled here:** whether a server-reported error should
+*raise*. `isError` is one flag covering both "you can't go that way" and "my
+connection died", and they are not distinguishable from the flag alone — telling
+them apart needs to know which conditions `mud-manager` marks, which is an
+open question, not a known answer. Making the failure structured is worth doing
+regardless; routing it is a separate decision.
+
+**Source:** found by the Python port. Step 05 divergence #1 replaced raw hash
+arrays with typed `TextBlock`/`ToolUseBlock` — *"one vocabulary for both
+directions"* — which is the same fix one layer up. ADR 0010 is the standing
+record that the loop must distinguish the model's mistakes from infrastructure
+failure.
+
+---
+
 ### F5 — The launcher throws the answer away
 **File:** `examples/example.rb:31` · **Size:** trivial
 
@@ -684,6 +743,7 @@ than doing neither.
 | F7 (timeouts) | raising `max_output_tokens` (F14) | a generation over 60s times out and is *retried* — up to four billed generations per call |
 | F24 (`num_ctx`) | any local model run | Ollama serves a 4,096 window while the harness believes it has 128,000 |
 | F18 (log system prompt) | — | touches the duplicated logger snapshot, so pairs naturally with F17 |
+| F34 (structured MCP errors) | F4 (propagate infrastructure failures) | F4 alone closes the dead-process door and reads as "handled", while a live server reporting `isError` still arrives as prose the model retries around — the same wrong answer for money, now with false confidence that it was fixed |
 
 F25 stands alone and is worth doing at any output ceiling.
 
@@ -701,12 +761,18 @@ reading as the pattern for the rest: `Context#compact_messages!`
 Still open:
 
 1. `Agent#handle_tool_calls` — needs a registry double that raises. The seam for
-   F4, and the only one here that isn't a pure function.
-2. `Backends::*#parse_response` — provider response in, normalized shape out.
+   F4, and the only one here that isn't a pure function. For F34 the same seam
+   needs a double that *returns* rather than raises, asserting the logger is
+   called with `ok: false`.
+2. `Tools::Mcp`'s registered block — feed it a recorded `tools/call` response
+   with `isError: true` and assert the failure survives as structure, not as a
+   `"error: "` prefix. `test_tools_mcp.rb` already exists and pins schema
+   pass-through, so this is a third case in a file that is already there.
+3. `Backends::*#parse_response` — provider response in, normalized shape out.
    The seam for F25; feed it a recorded `stop_reason: "max_tokens"` body.
-3. `Backends::*#to_payload` — the seam for F24; assert `options.num_ctx` and
+4. `Backends::*#to_payload` — the seam for F24; assert `options.num_ctx` and
    `options.num_predict` are present and sourced from one place.
-4. `Config#load_settings` — the seam for F10; a temp dir with `settings.yml`,
+5. `Config#load_settings` — the seam for F10; a temp dir with `settings.yml`,
    and a `BOUKENSHA_DIR` pointing nowhere.
 
 Expected values come from an independent source — the MCP server's published
