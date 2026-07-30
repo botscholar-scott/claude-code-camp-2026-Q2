@@ -40,13 +40,19 @@ mcp_servers:
       MUD_NAME:     dummy
       MUD_PASSWORD: helloworld
 
-  # Files. A third-party server nobody wrote boukensha code for — which is the
+  # Files. A third-party server nobody wrote boukensha code for — which was the
   # whole point: file access is a server you plug in, not a feature the agent
-  # was born with. Edit the last arg to change what it can reach.
+  # was born with. Uncomment to demonstrate that again; edit the last arg to
+  # change what it can reach.
+  #
+  # Disabled because it was rooted at /tmp, so it could reach neither the MUD
+  # nor the repo, and nothing in the system prompt referred to it — while its
+  # 14 tool schemas cost ~2,010 tokens on every single API call, 13% of session
+  # input, for zero calls made. See F23.
   #
   # required: false so a missing npx is a warning, not a dead agent.
-  filesystem:
-    command:  npx
-    args:     [-y, "@modelcontextprotocol/server-filesystem", /tmp]
-    prefix:   fs
-    required: false
+  #filesystem:
+  #  command:  npx
+  #  args:     [-y, "@modelcontextprotocol/server-filesystem", /tmp]
+  #  prefix:   fs
+  #  required: false

@@ -1,0 +1,13 @@
+source "https://rubygems.org"
+
+gem "dotenv"
+gem "charm"
+
+# Test harness. The repo ships a Rakefile and test/, but neither rake nor
+# minitest was declared, so `rake test` died before running anything.
+group :development, :test do
+  gem "rake"
+  gem "minitest"
+end
+
+gemspec
