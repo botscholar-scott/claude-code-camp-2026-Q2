@@ -216,12 +216,12 @@ getting lost is backwards. The map for those same moves is a few KB.
 This is the point of the epic. Play for fifty hours, map the city, come back
 tomorrow, and boukensha already knows the way to the bakery.
 
-| artifact | role | lives |
+| artifact | role | owner |
 |---|---|---|
-| rooms + edges + last position | **the map**, stored and loaded | `.boukensha/` |
+| rooms + edges + last position | **the map**, stored and loaded | `mud_manager` (§9.1) |
 | distance fields, frontier list | search indexes | rebuilt from the map, disposable |
 | graph paper (markdown) | human-readable render | write-only, never read back |
-| session jsonl | debug trace | not an input to the map |
+| session jsonl | debug trace | boukensha; not an input to the map |
 
 | table | contents |
 |---|---|
@@ -446,19 +446,30 @@ logger dropped the `tool_use_id`. F35 has landed, and the newest session file
 confirmed in a live run.
 
 But the two files that actually contain the 99 moves **predate the fix** and have
-no ids. So the replay projection needs to accept both: pair by `tool_use_id` when
-present, fall back to position when absent. Dispatch was a serial `each` in the
-code that wrote those files, so positional pairing is sound for them specifically.
+no ids.
+
+**This now only affects the offline harness of §8.1.** Since the map lives in the
+server that executes the move (§9.1), the live path has the call and its result in
+one place and never pairs anything. Only the corpus replay needs to pair, and it
+can do so by position: dispatch was a serial `each` in the code that wrote those
+files, so positional pairing is sound for them specifically.
 
 ---
 
 ## 8. Build order
 
+**Navigation is not downstream of planning.** A stored map plus a search plus one
+tool is useful on its own, today, and does not wait on goal decomposition, a task
+planner or a dependency graph. Decomposition stays at step 4 and step 1 does not
+depend on it.
+
 Smallest thing that gets most of the value:
 
 1. **Map plus search over observed rooms.** No predicates, no weights. "Take me
    to a room I have seen." This alone kills the wander-and-re-`look` loop that
-   produced the 189:1 ratio in §1.
+   produced the 189:1 ratio in §1. Includes re-localization by `look` (§6.2),
+   which is a few lines once the colour anchors of §5 are in and is what makes a
+   map built yesterday usable today.
 2. **Edge annotations learned from failure.** Try north, get "the door is
    locked", mark the edge. The pathfinder routes around it with no planner
    involved. Detected from game text, not from a flag (§7.1).
@@ -504,18 +515,66 @@ which is why §6.5 requires merges to be reversible.
 
 ---
 
-## 9. Open questions for review
+## 9. Where the code lives
 
-1. **Who owns the map and where does it live?** ADR 0012 says boukensha ships no
-   tools, which points at a second MCP server. Against that, F23 deleted the
-   `filesystem` server precisely because its schemas cost ~2,010 tokens per call
-   for zero calls; three map tools is ~430 tokens per call against a median
-   15,001. Not mud_manager either way: that gem is reused unmodified and the
-   telnet layer should not know what a map is.
-2. **How does the map see the moves?** Tail boukensha's session trace, or sit in
-   front of `mud-manager --mcp` as a proxy and see real request/response pairs.
-   The proxy deletes the pairing problem of §7.3 rather than working around it,
-   at the cost of being a man in the middle that can break the MUD outright.
+`week2_capable/ruby/14_improved_navigation/` holds **two gems side by side**,
+each copied forward from what `13_key_fixes` runs against:
+
+```
+week2_capable/ruby/14_improved_navigation/
+  boukensha/      0.13.0 -> 0.14.0
+  mud_manager/    0.2.0  -> 0.3.0     <- the map goes here
+```
+
+Both are copies. Nothing in this epic reads or writes `week0_explore/`, and
+whether week0 or week1 still work is not a consideration: every epic carries its
+own copies forward, which is what the numbered-directory convention is for.
+
+`boukensha/test/helper.rb` currently walks up the tree looking for a
+`week0_explore` directory to locate the server. It must resolve the **local
+sibling** instead. Leaving it as-is would test the epic's boukensha against an
+unmodified mud_manager and silently pass while exercising none of the new work.
+
+### 9.1 The map belongs in the MCP server
+
+Three reasons, in order of weight:
+
+**It is the only way to expose the tool.** ADR 0012 is unambiguous: boukensha
+ships no tools and every capability comes from an MCP server. "Take me to the
+bakery" has to be an MCP tool, so it has to live in a server.
+
+**That server already executes the move.** `mud_manager` has the direction, the
+result and the ordering in the same call, at the source. Nothing needs to tail a
+log, correlate by position or sit in the path as a proxy. §7.3's pairing problem
+does not apply to it at all, and an earlier draft's proxy design is unnecessary.
+
+**A map is in-domain for it.** `mud_manager` is not a telnet shim; it ships 26
+gameplay tools including `tbamud__track`, which is already a navigation tool.
+Adding a map extends what it does rather than contaminating it.
+
+Consequences:
+
+- **Boukensha needs no changes for step 1.** The map arrives as more tools in a
+  server it already speaks to. That is the strongest evidence the seam is right.
+- The map file is `mud_manager`'s to own and place, alongside the session it
+  already manages. Boukensha never reads it.
+- The new tool schemas join the existing `tbamud__` catalog and cost tokens on
+  every call. Budget roughly 143 tokens per tool against a median 15,001-token
+  call, and keep the count small, because F23 deleted a whole server over exactly
+  this.
+- ADR 0012's "reused unmodified" clause was about not *porting* the gem to
+  Python. It was never a prohibition on extending it, and per-epic copies make
+  extending it free of consequence elsewhere.
+
+---
+
+## 10. Open questions for review
+
+1. ~~**Who owns the map and where does it live?**~~ **Settled: the mud_manager
+   MCP server.** See §9.
+2. ~~**How does the map see the moves?**~~ **Settled, and dissolved.** The server
+   that executes the move has the direction and the result in the same call, so
+   there is nothing to tail and nothing to proxy. See §9.1.
 3. **Is `tbamud__track` good enough to skip step 1 for known destinations?** §5
    flags it as worth measuring first. Nobody has run it. It cannot remove the
    need for the map, since it only helps for destinations already known and §1's
@@ -538,3 +597,155 @@ which is why §6.5 requires merges to be reversible.
    corpus and the projection cannot be hardened against that case offline. Guard
    it by construction instead: an observation is a `tool_call` paired with a
    `tool_result`, and an unpaired call is not an observation.
+
+---
+
+## 11. What building it found
+
+**Written after implementing steps 1 and 2**, from running code and from a live
+tbaMUD session, not from reading. Everything below either contradicts the text
+above or fills a gap in it.
+
+### 11.1 §5 misses the `exits` command, which is the cheapest sensor here
+
+§5 treats the `[ Exits: n e s w ]` line as what the game tells you about exits.
+It is not. `exits` (also spelled `exit`, same command) returns every visible
+exit **with the name of the room behind it**, without moving:
+
+```
+25H 100M 84V > exits
+Obvious exits:
+north - By The Temple Altar
+east  - The Midgaard Donation Room
+south - The Temple Square
+west  - The Reading Room
+down  - The Temple Square
+```
+
+`look` says five exits exist. This says where all five go. It was already
+exposed as `check kind: exits` (it is in `INFO_SELF`), and it appears in the
+corpus, so it cost nothing to add and none of §5's analysis noticed it.
+
+Consequences:
+
+- **A frontier edge does not have to be blind.** One round trip labels up to six
+  edges that would otherwise cost a walk each to discover.
+- **"Find location X" can route to a room never entered**, as long as some
+  visited room lists an exit to it.
+- **It does not touch identity.** A listed name labels the *edge*. The key stays
+  `(title, description)` per §6.2, because a title is not unique and the
+  listing above proves it twice over: `south` and `down` both claim "The Temple
+  Square".
+- **Nothing is concluded from an absence.** A direction the listing omits stays
+  unnamed. Whether `exits` hides a shut door has never been observed here, and
+  guessing would put speculation into the map.
+
+Walking a labelled edge is the observation that settles it. Agreement is silent;
+disagreement is recorded as a `destination_conflict`.
+
+### 11.2 §6.3's dark-room rule does not survive a light source
+
+§6.3 says a dark room has neither field so identity falls back to dead
+reckoning. True on arrival, and insufficient afterwards: **a room that is dark
+on one visit can be identifiable on another.** Projecting the corpus produced a
+real contradiction from exactly this, `The Common Square south` leading to a
+dark placeholder in session 1 and to `The Dump` in session 2.
+
+Two additions were needed:
+
+- On arriving somewhere identifiable through an edge that previously led to a
+  dark placeholder, **absorb the placeholder into the real room**, keeping every
+  edge and its evidence.
+- On arriving in the dark through an edge whose destination is already recorded,
+  **trust movement history over dead reckoning**.
+
+With both, the corpus projects with zero violations. Without them it has one.
+
+### 11.3 §6.5's evidence rule is underspecified, and taken literally it is inert
+
+§6.5 says "every edge records the observation sequence that established it".
+Read literally that includes the exits-line announcement that created the edge.
+But §6.7 requires every announced exit to become an edge on first sight, so
+**every walked edge ends up carrying a seq from the merged node's first visit**,
+no edge is ever unambiguously attributable to one side of a split, and §6.5's
+reversibility never fires.
+
+The distinction the text needs: an **announcement** establishes that an exit
+exists and nothing about where it goes, so it is not evidence. A **traversal**
+is. Only traversals are recorded in `evidence`, and split moves an edge only
+when every traversal that established it happened at or after the split point.
+An edge walked on both sides of the split stays put, because it is genuinely
+ambiguous and split should not pretend otherwise.
+
+### 11.4 §6.6 does not say what to do on an exit-set mismatch, and the obvious answer is wrong
+
+The invariant is stated but not the remedy. The tempting remedy, union the old
+and new exit sets, is wrong twice over: it asserts a room **no observation ever
+showed**, and it buries the contradiction it was just handed.
+
+What it does instead: keep the most recently observed set, flag the room as a
+suspected wrong merge of two same-key rooms (§6.4), and let the now-stale edges
+surface in the degree audit, which is the same contradiction seen from the other
+side. §6.5's split is how it gets undone.
+
+An exit-set mismatch is also a **cheaper** detector for §6.4's maze case than
+the coordinate warp §6.4 relies on, and it arrives one observation earlier.
+
+### 11.5 Numbers in §6.1 and §6.7 are stale under the `(title, description)` key
+
+§6.3 predicted this and called re-running the projection "the first task of step
+1". Measured, projecting all 99 moves:
+
+| | §6.1 / §6.7 text | measured under the new key |
+|---|---|---|
+| rooms, session 1 | 26 | **25** |
+| edges walked, session 1 | 41 | **42** |
+| exits never tried, session 1 | 29 | **26** |
+| rooms, both sessions | 37 | **38** (37 keyed + 1 never-lit dark room) |
+| reachable by >1 inbound edge | 20 | **21** |
+| edge / exit-set / degree violations | 0 | **0** |
+
+§6.2's central claim holds exactly: 37 distinct `(title, description)` pairs
+against 37 rooms derived independently.
+
+Also stale: §7.2 counts 12 session files. There are 13 now. The two that carry
+the 99 moves are unchanged.
+
+### 11.6 The copied-forward tests were pointing at other epics
+
+§9 flags this for `boukensha/test/helper.rb`, which walked up to `week0_explore`
+for the daemon. The same rot was in the other direction and §9 does not mention
+it: `mud_manager/test/test_boukensha_integration.rb` pointed at
+`week1_baseline/ruby/10_standard_tool_library`, a path that **does not exist in
+this tree at all**, so its two tests had been silently skipping.
+
+Repointing both at the local siblings surfaced two assertions that had been
+stale since epic 13 landed: `Boukensha::Context.new` no longer takes `task:`,
+and `Registry#dispatch` returns a `ToolResult` rather than a String (F34).
+
+The general lesson for the numbered-directory convention: **a cross-tree test
+path that skips instead of failing will hide a regression for as long as you let
+it.** Prefer a local sibling and let a missing one be an error.
+
+### 11.7 What is not built
+
+Against §8's build order:
+
+- **Step 3, the fact store: not built.** The predicate machinery it needs is in
+  place (the pathfinder takes `state`, edges carry `requires`, and
+  counterfactual queries work), but nothing collects level, inventory, gold or
+  HP. The parser reads vitals off the prompt line on every single response and
+  currently discards them, so the cheapest half of this is one small step.
+- **Step 4, goal decomposition: not started**, per §8's own advice to decide
+  after step 3.
+- **§6.7's cached distance field: implemented but unused.** `distance_field` and
+  greedy `descend` exist and are tested; nothing keeps a field per hub, so
+  navigation still runs a search per call. Cheap to add once there is a hub
+  worth caching.
+- **§6.4's confirming walk: not automated.** A suspect room is flagged and the
+  agent is told to walk a known exit; nothing performs the walk and adjudicates
+  it. Note that §11.1 supplies a cheaper corroboration that needs no movement:
+  compare the two rooms' `exits` listings.
+- **§6.1's `shop` and `guild` room flags: not detected.** Only `dark` is.
+- **§10.3 is still open.** Whether `tbamud__track` beats a local search is
+  unmeasured; it needs a live MUD.

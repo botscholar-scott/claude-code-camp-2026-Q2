@@ -1,0 +1,106 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+#
+# mud-map-replay — build a map from recorded boukensha session logs, offline.
+#
+#   mud-map-replay SESSION.jsonl [MORE.jsonl ...] [--render OUT.md] [--save OUT.json]
+#
+# This is the harness of §8.1 of docs/plans/week2/14_improved_navigation.md.
+# The thing that *updates* the map is a pure function
+#
+#     (map, tool_name, args, result) -> map
+#
+# Live it is fed one observation at a time by the daemon; here it is fed a
+# recorded session instead, which is the same function in a loop. That is what
+# lets the parser and the merge rule be hardened with no MUD running and no
+# tokens spent.
+#
+# The session logs are a debug trace, NOT an input to the real map (§6.1). The
+# map boukensha plays with is written as it walks and loaded at boot. Nothing
+# here reads a world file (§8.2): the invariants below are self-derived.
+#
+# `tool_call` and `tool_result` are paired by position. F35 added tool_use_id,
+# but the sessions that contain the navigation predate it — and positional
+# pairing is sound for them specifically, because dispatch was a serial `each`
+# in the code that wrote them (§7.3).
+
+$LOAD_PATH.unshift File.expand_path("../lib", __dir__)
+require "mud_manager"
+require "json"
+
+files  = []
+render = nil
+save   = nil
+argv   = ARGV.dup
+until argv.empty?
+  case (arg = argv.shift)
+  when "--render" then render = argv.shift
+  when "--save"   then save   = argv.shift
+  else files << arg
+  end
+end
+
+if files.empty?
+  warn "usage: mud-map-replay SESSION.jsonl [...] [--render OUT.md] [--save OUT.json]"
+  exit 1
+end
+
+world  = MudManager::Map::World.new
+counts = Hash.new(0)
+kinds  = Hash.new(0)
+
+files.each do |path|
+  calls   = []
+  results = []
+
+  File.foreach(path) do |line|
+    rec = begin
+      JSON.parse(line)
+    rescue JSON::ParserError
+      next
+    end
+    calls   << rec if rec["phase"] == "tool_call"
+    results << rec if rec["phase"] == "tool_result"
+  end
+
+  # §10.5: an observation is a tool_call PAIRED with a tool_result. An unpaired
+  # call was started and never dispatched, and is not an observation.
+  calls.zip(results).each do |call, result|
+    next if result.nil? || call["name"] != result["name"]
+
+    res = MudManager::Map::Projection.apply(
+      world, call["name"], call["args"], result["result"],
+      ok: result["ok"] != false
+    )
+    counts[res.outcome] += 1
+    kinds[res.observation&.kind] += 1
+  end
+
+  # Each session starts wherever the character was left, so the position
+  # carries across files exactly as it would in real play.
+  puts "#{File.basename(path)}: #{world.room_count} rooms, #{world.edge_count} edges so far"
+end
+
+puts
+puts "outcomes:   " + counts.sort_by { |k, _| k.to_s }.map { |k, v| "#{k}=#{v}" }.join("  ")
+puts "obs kinds:  " + kinds.sort_by { |k, _| k.to_s }.map { |k, v| "#{k}=#{v}" }.join("  ")
+puts "rooms:      #{world.room_count}"
+puts "edges:      #{world.edge_count} walked=#{world.edges.values.count { |e| e.to }} " \
+     "frontier=#{world.frontier_edges.size} (#{world.named_frontier_edges.size} named by an exits listing)"
+puts "suspect rooms: #{world.rooms.values.count(&:suspect?)}"
+puts "reachable by >1 inbound edge: " \
+     "#{world.rooms.keys.count { |id| world.edges_to(id).map(&:from).uniq.size > 1 }}"
+
+violations = world.violations + world.audit
+puts "violations: #{violations.size}"
+violations.each { |v| puts "  [#{v['kind']}] #{v['message']}" }
+
+if render
+  File.write(render, MudManager::Map::Renderer.markdown(world))
+  puts "wrote #{render}"
+end
+
+if save
+  MudManager::Map::Store.new(save).save(world)
+  puts "wrote #{save}"
+end
