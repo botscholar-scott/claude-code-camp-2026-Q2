@@ -19,9 +19,11 @@ Gem::Specification.new do |spec|
   spec.bindir      = "bin"
   spec.executables = ["boukensha"]
 
-  # MCP servers bring their own dependencies; boukensha itself needs only
-  # `charm`, for the TUI (bubbletea + lipgloss + bubbles bindings).
+  # MCP servers bring their own dependencies; boukensha itself needs
+  # `charm`, for the TUI (bubbletea + lipgloss + bubbles bindings), and
+  # `dotenv`, loaded by lib/boukensha/config.rb for .env-based configuration.
   spec.add_dependency "charm"
+  spec.add_dependency "dotenv"
 
   # open3, net/http, and json are stdlib. Users supply their own ANTHROPIC_API_KEY.
 end
