@@ -64,7 +64,13 @@ module MudManager
           s = ensure_ready(id)
           s.drain
           s.send_command(command)
-          s.read_until_prompt
+          # CircleMUD prints a prompt after EVERY output block, including the
+          # async ones nobody asked for. If a tick lands between the drain and
+          # the reply, read_until_prompt returns the tick and leaves the reply
+          # in the buffer, to be reported against whatever is asked next. The
+          # window is small because the drain just cleared it, but a free
+          # non-blocking sweep afterwards closes what is left of it.
+          s.read_until_prompt + s.drain
         end
       end
 
@@ -74,6 +80,15 @@ module MudManager
       def run_raw(id, raw)
         with_reconnect(id) do
           s = ensure_ready(id)
+          # Without this drain, read_until_quiet returns INSTANTLY with whatever
+          # async text happened to be sitting in the buffer — its "quiet"
+          # condition is already satisfied by data that arrived long ago — and
+          # never waits for the reply to the command we just sent. Every raw
+          # command issued after any tick message was answered with the tick.
+          # That is why `open gate` came back "You are hungry. You are thirsty."
+          # and the real answer, "It seems to be locked.", only surfaced on a
+          # later poll.
+          s.drain
           s.send_command(raw)
           s.read_until_quiet
         end

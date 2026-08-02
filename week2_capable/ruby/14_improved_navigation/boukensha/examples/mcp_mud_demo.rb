@@ -20,9 +20,11 @@
 #   # ~/.boukensha/settings.yaml (mud: host/port/username/password):
 #   ruby examples/mcp_mud_demo.rb
 
-# --- load paths: this step's boukensha + the mud_manager package ------------
+# --- load paths: this step's boukensha + its SIBLING mud_manager ------------
+# The sibling, not week0_explore's copy: this epic's mud_manager is the one
+# carrying the map, so pointing at week0 would demo a daemon without it.
 $LOAD_PATH.unshift File.expand_path("../lib", __dir__)
-$LOAD_PATH.unshift File.expand_path("../../../../week0_explore/mud_manager/lib", __dir__)
+$LOAD_PATH.unshift File.expand_path("../../mud_manager/lib", __dir__)
 
 require "boukensha"
 
@@ -49,7 +51,7 @@ if dry
   ctx      = Boukensha::Context.new(system: "demo")
   registry = Boukensha::Registry.new(ctx)
 
-  daemon = File.expand_path("../../../../week0_explore/mud_manager/bin/mud-manager", __dir__)
+  daemon = File.expand_path("../../mud_manager/bin/mud-manager", __dir__)
   client = Boukensha::Tools::Mcp.register(
     registry,
     command: RbConfig.ruby, args: [daemon, "--mcp"],

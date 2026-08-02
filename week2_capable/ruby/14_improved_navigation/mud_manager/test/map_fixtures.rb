@@ -158,6 +158,19 @@ module MapFixtures
     "25H 100M 84V > "
   ])
 
+  # From the live map, in the Shadow Grove and the caves under it: the listing
+  # answers with a sentence rather than a room name when it cannot see through
+  # the doorway or the door is shut. Neither is a destination.
+  EXIT_LISTING_UNNAMED = crlf([
+    "Obvious exits:",
+    "north - Too dark to tell.",
+    "east  - The Shadow Grove",
+    "south - Too dark to tell.",
+    "west  - The door is closed.",
+    "",
+    "25H 100M 84V > "
+  ])
+
   # An async broadcast arriving with no colour code at all, which is why §5's
   # colour anchors skip it rather than needing a speech heuristic.
   MAYOR = "The Mayor says 'Good day, citizens!'\r\n"

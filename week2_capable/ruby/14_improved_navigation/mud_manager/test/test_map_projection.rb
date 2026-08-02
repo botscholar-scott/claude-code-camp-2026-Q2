@@ -272,16 +272,51 @@ class TestMapProjection < Minitest::Test
     assert_equal "The Temple Square", @world.room(@world.edge(here, "north").to).title
   end
 
-  # Disagreement is a contradiction, surfaced rather than silently overwritten.
+  # Disagreement is a contradiction, surfaced rather than silently overwritten
+  # — when the label names a room we have actually stood in. Then two of our own
+  # observations disagree, which is what violations are for.
   def test_walking_a_labelled_edge_that_lied_raises_a_contradiction
+    move("north", F::COMMON_SQUARE)     # now we know a room by this name
     move("north", F::MARKET_SQUARE)
-    check_exits(MapFixtures.crlf(["Obvious exits:", "north - The Bakery", "",
+    check_exits(MapFixtures.crlf(["Obvious exits:", "north - The Common Square", "",
                                   "25H 100M 84V > "]))
     move("north", F::TEMPLE_SQUARE)
 
     assert_equal 1, @world.violations.size
     assert_equal "destination_conflict", @world.violations.first["kind"]
     assert_equal "The Temple Square", @world.current.title, "the observation still wins"
+  end
+
+  # A label naming nothing we have ever seen is an unresolved hypothesis, not a
+  # contradiction: there is no belief of ours for the arrival to contradict.
+  #
+  # This is also how a server that answers with a sentence instead of a room
+  # name — because the way is dark, or the door is shut — stops filling the log
+  # with false alarms, WITHOUT this code carrying a list of that server's
+  # wording. On the live map that list-free rule is the difference between 30
+  # violations and 2.
+  def test_an_unresolved_label_is_settled_by_walking_not_flagged
+    move("north", F::MARKET_SQUARE)
+    here = @world.position
+    check_exits(MapFixtures.crlf(["Obvious exits:", "north - Too dark to tell.", "",
+                                  "25H 100M 84V > "]))
+    move("north", F::TEMPLE_SQUARE)
+
+    assert_empty @world.violations
+    assert_equal "The Temple Square", @world.room(@world.edge(here, "north").to).title,
+                 "the arrival is recorded exactly as it would have been anyway"
+  end
+
+  # Same rule, no special case: an ordinary room name we have not met yet is
+  # also just unresolved until we walk it.
+  def test_a_label_for_a_room_never_seen_is_likewise_only_settled
+    move("north", F::MARKET_SQUARE)
+    check_exits(MapFixtures.crlf(["Obvious exits:", "north - The Bakery", "",
+                                  "25H 100M 84V > "]))
+    move("north", F::TEMPLE_SQUARE)
+
+    assert_empty @world.violations
+    assert_equal "The Temple Square", @world.current.title
   end
 
   def test_an_exits_listing_with_no_known_position_is_ignored

@@ -86,12 +86,21 @@ class TestMapParser < Minitest::Test
     refute obs.moved?
   end
 
-  def test_suspected_refusals_are_flagged_unverified
-    obs = P.parse("Alas, you cannot go that way.\r\n\r\n25H 100M 80V > ")
-
-    assert_equal :refused, obs.kind
-    assert_equal :no_exit, obs.reason
-    refute obs.verified, "wording never seen in a session must not be reported as verified"
+  # A refusal the parser has no pattern for is reported as exactly that:
+  # unclassified. It is not guessed at. Measured on the corpus, guessing loses:
+  # every reply the guessed patterns were written for never occurred, while the
+  # four that did occur were not among them. Cartographer#settle establishes
+  # what actually happened, by looking.
+  def test_a_refusal_with_unknown_wording_is_not_guessed_at
+    [
+      "Alas, you cannot go that way.\r\n\r\n25H 100M 80V > ",
+      "You are too exhausted.\r\n\r\n25H 100M 0V > ",
+      "Maybe you should get on your feet first?\r\n\r\n25H 100M 80V > "
+    ].each do |reply|
+      obs = P.parse(reply)
+      assert_equal :unparsed, obs.kind, reply.lines.first
+      refute obs.moved?, "and above all it is never reported as a move that worked"
+    end
   end
 
   # `look` gives the direction set. `exits` gives the direction set AND the
@@ -147,6 +156,20 @@ class TestMapParser < Minitest::Test
     assert_equal :exit_list, obs.kind
     assert_equal({ "north" => "The Dark Alley At The Levee", "south" => "On The River" },
                  obs.destinations)
+  end
+
+  # The parser reports every label the listing gave, verbatim, including the
+  # ones that are plainly not room names. Deciding which sentences a server
+  # substitutes for a title is not the parser's job and cannot be done from a
+  # fixed list without breaking on the next MUD.
+  def test_every_label_the_listing_gave_is_reported_verbatim
+    obs = P.parse(MapFixtures::EXIT_LISTING_UNNAMED)
+
+    assert_equal :exit_list, obs.kind
+    assert_equal 4, obs.destinations.size
+    assert_equal "The Shadow Grove",      obs.destinations["east"]
+    assert_equal "Too dark to tell.",     obs.destinations["north"]
+    assert_equal "The door is closed.",   obs.destinations["west"]
   end
 
   # A room block and an exits listing are different observations and must not

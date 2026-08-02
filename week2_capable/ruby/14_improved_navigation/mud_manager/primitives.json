@@ -484,8 +484,47 @@
     },
     "map_explore": {
       "category": "navigation",
-      "description": "Expand the map: walk to the nearest exit that has never been tried and take it. Use this instead of guessing directions when you are looking for somewhere you have not been. Reports what was found and how many unexplored exits remain.",
-      "args": {}
+      "description": "Expand the map. By default it SURVEYS: asks the game where the current room's exits go, then walks each untried one and comes straight back, so the map learns both the way out and the way home. When the room is exhausted it moves to the nearest room that still has an untried exit. Pass mode='dive' for a cheaper depth-first walk that keeps going outward and does not return — faster to cover ground, but leaves the map one-way. Pass a count to do several in one call. Use this instead of guessing directions when looking for somewhere you have not been.",
+      "args": {
+        "count": {
+          "type": "integer",
+          "required": false,
+          "description": "How many rooms to survey, or unexplored exits to take in dive mode (default 1)",
+          "default": 1
+        },
+        "mode": {
+          "type": "string",
+          "required": false,
+          "description": "'survey' (default) probes each exit and returns; 'dive' walks outward without returning",
+          "enum": [
+            "survey",
+            "dive"
+          ],
+          "default": "survey"
+        }
+      }
+    },
+    "map_follow": {
+      "category": "navigation",
+      "description": "Walk a route you already have, as one call. Give it a sequence of directions ('north west north west west south ...') and it walks the whole thing, checking every arrival and stopping the moment a move is refused or a reply cannot be read. USE THIS whenever the user hands you a route, or you copy one from anywhere: do NOT issue the moves yourself one at a time. Over a long route that is one call instead of thirty, and it cannot lose its place. The route is held here, not by you: every move that lands is taken off it, and what remains is reported back. If it stops, deal with whatever stopped it and call this again WITH NO ARGUMENTS to carry on from where it got to.",
+      "args": {
+        "directions": {
+          "type": "string",
+          "required": false,
+          "description": "Space or comma separated, e.g. 'north west north' or 'n,w,n'. Omit to resume the route already in progress."
+        }
+      }
+    },
+    "map_back": {
+      "category": "navigation",
+      "description": "Retrace your steps, undoing the moves made this session in reverse order. Use this whenever you want to return to where you started or get out of a dead end. It checks every step lands where expected and stops if one does not. It is also how the map learns return routes: exploring only records the way out, so walking back is what teaches it the way home, after which map_goto can route there directly.",
+      "args": {
+        "steps": {
+          "type": "integer",
+          "required": false,
+          "description": "How many moves to undo. Omit to retrace everything walked this session."
+        }
+      }
     }
   }
 }

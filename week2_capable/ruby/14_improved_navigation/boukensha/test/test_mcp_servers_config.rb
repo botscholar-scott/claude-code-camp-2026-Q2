@@ -122,9 +122,9 @@ class TestMcpServersConfig < Minitest::Test
     config_from(server_yaml("mud", extra: "    prefix: tbamud")) do |cfg|
       _ctx, registry = new_registry
       summary = Boukensha.send(:register_mcp_servers, registry, cfg)
-      # 26 gameplay tools plus the three map tools this epic adds to the
-      # sibling mud_manager (map_where / map_goto / map_explore).
-      assert_equal({ "mud" => 29 }, summary)
+      # 26 gameplay tools plus the four map tools this epic adds to the sibling
+      # mud_manager: map_where / map_goto / map_explore / map_back.
+      assert_equal({ "mud" => 30 }, summary)
     end
   ensure
     @fake&.stop

@@ -39,7 +39,7 @@ module MudManager
       #   :needs_item     refused for want of a boat (or similar)
       #   :blocked_by_mob something living is in the way
       #   :no_exit        the MUD says there is nothing there
-      STATUSES = %i[unknown open closed_door needs_item blocked_by_mob no_exit].freeze
+      STATUSES = %i[unknown open closed_door needs_item blocked_by_mob no_exit blocked].freeze
 
       # `listed_seq` is when an `exits` listing was last folded in for this
       # room. Nil means nobody has ever asked. It is what stops the listing
@@ -62,7 +62,15 @@ module MudManager
       # there.
       Edge = Struct.new(:from, :direction, :to, :status, :requires,
                         :expected_title, :evidence, :last_seq, keyword_init: true) do
+        # Never walked. May still have been named by an exits listing, and may
+        # already have been attempted and refused.
         def frontier? = to.nil?
+
+        # Never even attempted. `evidence` holds traversal sequences only, so an
+        # exit announced by the exits line has none, while one that was walked,
+        # or walked and refused, does. This is the exploration frontier: trying
+        # it can still teach us something.
+        def untried? = to.nil? && evidence.empty?
       end
 
       attr_reader :rooms, :edges, :violations
@@ -230,13 +238,17 @@ module MudManager
       # The `exits` command named what is on the other side of an exit without
       # us walking it. Record the label; mint nothing. If the edge has already
       # been walked, the name is a check on what we recorded rather than news,
-      # and a disagreement is worth surfacing.
+      # and a disagreement is worth surfacing — under the same corroboration
+      # rule as #check_expectation, and for the same reason: a label naming no
+      # room we have ever seen contradicts nothing, and deciding otherwise would
+      # mean this code holding a list of one server's stock phrases.
       def record_expected(from:, direction:, title:, seq:)
         edge = @edges[[from, direction]] ||
                record_edge(from: from, direction: direction, to: nil, seq: seq,
                            status: :unknown, evidence: false)
 
-        if edge.to && (known = @rooms[edge.to]) && !known.dark? && known.title != title
+        if edge.to && (known = @rooms[edge.to]) && !known.dark? && known.title != title &&
+           title_index.key?(title)
           violate!(:destination_conflict, seq,
                    "#{label(from)} #{direction} was walked to #{known.title.inspect} " \
                    "but the exits listing names #{title.inspect}")
@@ -250,9 +262,25 @@ module MudManager
 
       # We walked an edge the `exits` listing had already named. Arriving is
       # the observation that settles it.
+      # A listed destination is a hypothesis, and walking it is the test. The
+      # arrival is what goes on the map either way, so nothing here changes the
+      # graph — the only question is whether a failed test is worth flagging.
+      #
+      # It is a violation only when the label names a room we have actually
+      # stood in somewhere. Then two observations of our own disagree, which is
+      # the thing violations exist to catch.
+      #
+      # When the label names nothing we have ever seen, we hold no belief for
+      # the arrival to contradict. That covers the case where a server answers
+      # with a sentence instead of a name because the way is dark or the door is
+      # shut, and it covers it without this code knowing a single thing about
+      # which sentences those are — which is the point. Encoding tbaMUD's
+      # wording here would be a list that is silently wrong on the next MUD.
       def check_expectation(edge, room, seq)
         return if edge.expected_title.nil? || room.dark?
         return if edge.expected_title == room.title
+        return unless title_index.key?(edge.expected_title)
+
         violate!(:destination_conflict, seq,
                  "#{label(edge.from)} #{edge.direction} was listed as leading to " \
                  "#{edge.expected_title.inspect} but walking it arrived in #{room.title.inspect}")
@@ -272,13 +300,40 @@ module MudManager
         @edges.values.select { |e| e.frontier? && e.expected_title }
       end
 
+      # title => [room ids]. A search index in the sense of §6.1: derived from
+      # the rooms, rebuilt on demand, never a second source of truth. It is what
+      # lets a listed destination name be resolved to a node at search time
+      # rather than being frozen into the stored map, so it cannot go stale when
+      # a room is minted, absorbed or split.
+      def title_index
+        idx = Hash.new { |h, k| h[k] = [] }
+        @rooms.each_value { |r| idx[r.title] << r.id unless r.dark? }
+        idx
+      end
+
       def edges_from(id) = @edges.values.select { |e| e.from == id }
 
       def edges_to(id) = @edges.values.select { |e| e.to == id }
 
-      # Every announced-but-unwalked exit in the map. This is the exploration
+      # Every exit we have never actually attempted. This is the exploration
       # plan; without it, exploration has no plan at all.
-      def frontier_edges = @edges.values.select(&:frontier?)
+      #
+      # "Never attempted" is exactly `evidence.empty?`: an announcement from the
+      # exits line records no evidence, while a traversal, successful or
+      # refused, records the observation sequence. So a door announced shut is
+      # still worth one try, and stops being worth trying the moment that try
+      # comes back refused.
+      #
+      # This used to be every unwalked edge, which meant a direction the game
+      # had flatly rejected stayed on the to-try list forever and exploration
+      # could never terminate.
+      def frontier_edges
+        @edges.values.select(&:untried?)
+      end
+
+      # Everything never walked, whatever we have learned about it. Used for
+      # reporting rather than for planning.
+      def unwalked_edges = @edges.values.select(&:frontier?)
 
       # ── reversibility (§6.5) ────────────────────────────────────────────────
 

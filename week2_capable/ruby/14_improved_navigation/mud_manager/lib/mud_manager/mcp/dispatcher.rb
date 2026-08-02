@@ -97,7 +97,14 @@ module MudManager
           dest = args["destination"].to_s
           raise ProtocolError.new("argument_error", "destination is required") if dest.strip.empty?
           carto.goto(dest)
-        when "map_explore" then carto.explore
+        when "map_explore"
+          carto.explore(count: args.fetch("count", 1) || 1,
+                        mode: args.fetch("mode", "survey") || "survey")
+        # No directions means "resume the route already on the stack".
+        when "map_follow"
+          dirs = args["directions"]
+          carto.follow(dirs.to_s.strip.empty? ? nil : dirs)
+        when "map_back"    then carto.back(steps: args["steps"])
         else
           raise ProtocolError.new("unknown_tool", "no such map tool: #{name}")
         end

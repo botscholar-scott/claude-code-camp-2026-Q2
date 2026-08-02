@@ -27,9 +27,23 @@ mcp_servers:
   # never chdirs for you. A relative path here only works when you happen to
   # launch from the repo root. Nothing hunts for the binary on your behalf any
   # more — that discovery logic died with Tools::McpMud, which is the trade
-  # for the agent not knowing what a MUD is. `mud-manager` is installed on
-  # PATH (the mud_manager gem), so we call it directly instead.
-  # This entry is `required` (the default), so a bad path fails loudly at boot.
+  # for the agent not knowing what a MUD is.
+  #
+  # A bare name, resolved on PATH, so what runs here is a built and installed
+  # gem like any other MCP server. Which means: after editing mud_manager,
+  #
+  #   gem build mud_manager.gemspec && gem install ./mud_manager-<version>.gem
+  #
+  # and restart, or you are playing the last version you installed. That is the
+  # point of it being a gem. Pointing this at a source tree instead makes edits
+  # appear for free and quietly hides the fact that nothing was ever packaged.
+  #
+  # `gem list mud_manager` should show exactly one version. More than one and
+  # PATH picks the highest, which is how a run ends up on an old build with no
+  # map tools. The banner prints the tool count at boot — currently 31 — so a
+  # wrong version is visible immediately.
+  #
+  # This entry is `required` (the default), so a missing binary fails loudly.
   mud:
     command: mud-manager
     args:    [--mcp]

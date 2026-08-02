@@ -37,6 +37,13 @@ module MudManager
       # It carries no colour codes at all, so it is recognised by its header.
       EXIT_LIST_HEADER = /^\s*Obvious exits:/.freeze
       EXIT_LIST_ENTRY  = /^\s*(north|east|south|west|up|down)\s+-\s+(\S.*?)\s*$/i.freeze
+      # The listing does not always name a room. Where the doorway is shut, or
+      # the room beyond is unlit, tbaMUD puts a sentence in the title's place
+      # ("Too dark to tell.", "The door is closed."). The parser reports those
+      # verbatim like any other label and does not try to recognise them: which
+      # sentences a given server substitutes is not knowable from here, and a
+      # list of them would be a list that is wrong on the next MUD. What the
+      # label MEANS is settled downstream, by walking it.
       # The CircleMUD status prompt is embedded in every response (§5, "free
       # state"): `25H 100M 80V >`.
       PROMPT     = /(?<hp>\d+)H\s+(?<mana>\d+)M\s+(?<move>\d+)V\s*>/.freeze
@@ -47,23 +54,22 @@ module MudManager
         "w" => "west",  "u" => "up",   "d" => "down"
       }.freeze
 
-      # Verified against the corpus (§5.1). These three account for every move
-      # result in it that carried no exits line, other than pitch-black rooms.
+      # These two are observed in the corpus and they are an OPTIMISATION, not
+      # the mechanism: matching one names the reason for a refusal in the same
+      # round trip, which is worth a little to the cost model. Matching nothing
+      # is not a failure — Cartographer#settle then establishes whether the move
+      # worked by looking, which is what actually makes this work on a MUD whose
+      # wording nobody here has seen.
+      #
+      # The table stays short and stays honest for that reason. It used to carry
+      # three more patterns that were guesses at wording never once observed;
+      # measured against the corpus they classified nothing, while the replies
+      # that DID occur ("You are too exhausted.", "This zone is above your
+      # recommended level.") were not in it. Guessing at a server's phrasing is
+      # not a strategy that converges.
       REFUSALS = [
         [/The door seems to be closed\./, :closed_door],
         [/You need a boat to go there\./, :needs_boat]
-      ].freeze
-
-      # NOT verified. §5.1 records that no session ever produced a "no such
-      # exit" reply or a mob-blocks-movement reply, so their exact wording is
-      # unknown. These patterns are guesses, kept in a separate table so that
-      # an Observation built from one is flagged `verified: false` and the
-      # projection can refuse to draw a hard conclusion from it. A reply that
-      # matches neither table is :unparsed, which means re-localize.
-      SUSPECTED_REFUSALS = [
-        [/you cannot go that way/i,   :no_exit],
-        [/blocks your way/i,          :blocked_by_mob],
-        [/is in your way/i,           :blocked_by_mob]
       ].freeze
 
       module_function
@@ -89,12 +95,6 @@ module MudManager
           next unless raw =~ pattern
           return Observation.new(kind: :refused, reason: reason, vitals: vitals,
                                  verified: true, text: raw)
-        end
-
-        SUSPECTED_REFUSALS.each do |pattern, reason|
-          next unless raw =~ pattern
-          return Observation.new(kind: :refused, reason: reason, vitals: vitals,
-                                 verified: false, text: raw)
         end
 
         Observation.new(kind: :unparsed, vitals: vitals, verified: true, text: raw)

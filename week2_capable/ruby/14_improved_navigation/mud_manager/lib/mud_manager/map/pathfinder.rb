@@ -24,7 +24,12 @@ module MudManager
         closed_door:    3,
         needs_item:     5,
         blocked_by_mob: 8,
-        no_exit:        INFINITY
+        no_exit:        INFINITY,
+        # We tried it and a look confirmed we had not moved. Why is unknown, and
+        # routing does not need to know why: something said no, so do not plan a
+        # journey through it. Like every other refusal it now carries evidence,
+        # so exploration counts it as tried and moves on.
+        blocked:        INFINITY
       }.freeze
 
       # What a `state` must contain for an edge of each status to be usable.
@@ -32,10 +37,18 @@ module MudManager
       GATE = {
         closed_door:    ["open_doors"],
         blocked_by_mob: ["pass_mobs"],
-        no_exit:        ["impossible"]
+        no_exit:        ["impossible"],
+        blocked:        ["impossible"]
       }.freeze
 
-      Step  = Struct.new(:direction, :from, :to, :edge, keyword_init: true)
+      # An edge we have never walked, but whose destination the game named in an
+      # `exits` listing, costs this much more than one we have confirmed. It is
+      # a lead, not a fact, so the search prefers a known way round when there
+      # is one and falls back to the lead when there is not. Arrival is checked
+      # against the prediction either way.
+      PRESUMED_PENALTY = 2
+
+      Step  = Struct.new(:direction, :from, :to, :edge, :presumed, keyword_init: true)
       Route = Struct.new(:steps, :cost, :target, keyword_init: true) do
         def directions = steps.map(&:direction)
         def length     = steps.size
@@ -49,20 +62,40 @@ module MudManager
         GATE.fetch(edge.status, []) | Array(edge.requires)
       end
 
-      def traversable?(edge, state)
-        return false if edge.to.nil?
+      # Where this edge leads, as far as we can tell. A walked edge knows. An
+      # unwalked one may still have been *named* by an `exits` listing, which is
+      # the game stating where that exit goes — an observation, not a guess. It
+      # resolves to a node only when the name picks out exactly one room we
+      # know, because a title is not a key: three rooms are called "Main
+      # Street", so an ambiguous name resolves to nothing.
+      #
+      # Resolved here, at search time, from a disposable index. Nothing is
+      # written back into the stored map, so a lead can never be mistaken later
+      # for a traversal that happened.
+      def destination(edge, index)
+        return edge.to if edge.to
+        return nil if index.nil? || edge.expected_title.nil?
+        rooms = index[edge.expected_title]
+        rooms && rooms.size == 1 ? rooms.first : nil
+      end
+
+      def traversable?(edge, state, index = nil)
+        return false if destination(edge, index).nil?
         requirements(edge).all? { |fact| state[fact] || state[fact.to_s] }
       end
 
-      def cost(edge) = COST.fetch(edge.status, 1)
+      def cost(edge, presumed = false)
+        COST.fetch(edge.status, 1) + (presumed ? PRESUMED_PENALTY : 0)
+      end
 
       # Shortest route between two known rooms. nil when no route exists under
       # `state` — which is itself the useful answer for a counterfactual query.
-      def route(world, from:, to:, state: {})
+      # `presume: false` restricts the search to edges actually walked.
+      def route(world, from:, to:, state: {}, presume: true)
         return nil if from.nil? || to.nil?
         return Route.new(steps: [], cost: 0, target: to) if from == to
 
-        prev, = dijkstra(world, from, state) { |id| id == to }
+        prev, = dijkstra(world, from, state, presume) { |id| id == to }
         build_route(prev, from, to)
       end
 
@@ -77,7 +110,11 @@ module MudManager
       def nearest_frontier(world, from:, state: {})
         return [nil, nil] if from.nil?
 
-        frontier = world.frontier_edges.reject { |e| gated?(e, state) }
+        # Every untried exit is a candidate target, including ones the search
+        # would not route *through*: a shut door is worth one attempt, and the
+        # attempt is what settles it. Gating still applies to the route taken to
+        # get there, which is a different question.
+        frontier = world.frontier_edges
         return [nil, nil] if frontier.empty?
 
         by_room = frontier.group_by(&:from)
@@ -135,7 +172,8 @@ module MudManager
       # Returns [predecessor map { room_id => Step }, the accepted node or nil].
       # Stops as soon as the block accepts a settled node, which under Dijkstra
       # is the cheapest such node.
-      def dijkstra(world, from, state)
+      def dijkstra(world, from, state, presume = true)
+        index = presume ? world.title_index : nil
         dist  = { from => 0 }
         prev  = {}
         queue = [[0, from]]
@@ -154,14 +192,18 @@ module MudManager
           end
 
           world.edges_from(node).each do |edge|
-            next unless traversable?(edge, state)
-            c = cost(edge)
+            dest = destination(edge, index)
+            next if dest.nil?
+            next unless traversable?(edge, state, index)
+            presumed = edge.to.nil?
+            c = cost(edge, presumed)
             next if c == INFINITY
             nd = d + c
-            next if nd >= dist.fetch(edge.to, INFINITY)
-            dist[edge.to] = nd
-            prev[edge.to] = Step.new(direction: edge.direction, from: node, to: edge.to, edge: edge)
-            queue << [nd, edge.to]
+            next if nd >= dist.fetch(dest, INFINITY)
+            dist[dest] = nd
+            prev[dest] = Step.new(direction: edge.direction, from: node, to: dest,
+                                  edge: edge, presumed: presumed)
+            queue << [nd, dest]
           end
         end
 
@@ -178,7 +220,7 @@ module MudManager
           node = step.from
           return nil if steps.size > 10_000
         end
-        Route.new(steps: steps, cost: steps.sum { |s| cost(s.edge) }, target: to)
+        Route.new(steps: steps, cost: steps.sum { |s| cost(s.edge, s.presumed) }, target: to)
       end
 
       def gated?(edge, state)

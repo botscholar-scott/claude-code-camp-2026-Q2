@@ -122,14 +122,14 @@ class TestMapPathfinder < Minitest::Test
   # §6.7 — an unexplored exit is the target of exploration, never a step on a
   # route to somewhere known.
   def test_frontier_edges_are_never_used_as_route_steps
-    @world.record_edge(from: @id["a"], direction: "north", to: nil, seq: 99, status: :unknown)
+    @world.record_edge(from: @id["a"], direction: "north", to: nil, seq: 99, status: :unknown, evidence: false)
 
     assert_equal %w[east east], route("c").directions
   end
 
   def test_nearest_frontier_is_the_cheapest_one_to_reach_not_an_arbitrary_pick
-    @world.record_edge(from: @id["f"], direction: "north", to: nil, seq: 90, status: :unknown)
-    @world.record_edge(from: @id["b"], direction: "north", to: nil, seq: 91, status: :unknown)
+    @world.record_edge(from: @id["f"], direction: "north", to: nil, seq: 90, status: :unknown, evidence: false)
+    @world.record_edge(from: @id["b"], direction: "north", to: nil, seq: 91, status: :unknown, evidence: false)
 
     route, edge = M::Pathfinder.nearest_frontier(@world, from: @id["a"])
     assert_equal %w[east], route.directions
@@ -138,7 +138,7 @@ class TestMapPathfinder < Minitest::Test
   end
 
   def test_a_frontier_in_the_current_room_needs_no_walk
-    @world.record_edge(from: @id["a"], direction: "north", to: nil, seq: 92, status: :unknown)
+    @world.record_edge(from: @id["a"], direction: "north", to: nil, seq: 92, status: :unknown, evidence: false)
 
     route, edge = M::Pathfinder.nearest_frontier(@world, from: @id["a"])
     assert_empty route.directions

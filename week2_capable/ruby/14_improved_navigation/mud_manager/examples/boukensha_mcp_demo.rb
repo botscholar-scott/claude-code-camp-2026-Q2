@@ -15,14 +15,15 @@
 #   # ~/.boukensha/settings.yaml):
 #   ruby examples/boukensha_mcp_demo.rb
 #
-# Point at a specific boukensha step with BOUKENSHA_LIB (defaults to the
-# repo's week1_baseline step 10).
+# Point at a specific boukensha step with BOUKENSHA_LIB. It defaults to the
+# LOCAL SIBLING, not to an earlier epic: every epic carries its own copies
+# forward, and the path this used to hold (week1_baseline step 10) does not
+# exist in this tree at all.
 
 require "json"
 
-# --- locate boukensha (step 10 by default) --------------------------------
-default_boukensha =
-  File.expand_path("../../../week1_baseline/ruby/10_standard_tool_library/lib", __dir__)
+# --- locate boukensha (the sibling in this epic by default) ----------------
+default_boukensha = File.expand_path("../../boukensha/lib", __dir__)
 boukensha_lib = ENV.fetch("BOUKENSHA_LIB", default_boukensha)
 $LOAD_PATH.unshift boukensha_lib
 $LOAD_PATH.unshift File.expand_path("../lib", __dir__)

@@ -9,8 +9,25 @@ module Boukensha
     #   2. ~/.boukensha  (default)
     DEFAULT_DIR = File.join(Dir.home, ".boukensha").freeze
 
-    # Default prompts shipped alongside this step.
-    PROMPTS_DIR = File.expand_path("../../../prompts", __dir__).freeze
+    # This file always lives at <package>/lib/boukensha/config.rb, whether the
+    # package is a checked-out step folder or an installed gem, so the package
+    # root is always exactly two levels up. Deriving from that invariant beats
+    # counting "../" against the repo layout, which is what rotted here: the
+    # constant read "../../../prompts", a count carried forward from before the
+    # epic gained an extra `boukensha/` level to sit beside `mud_manager/`, and
+    # it resolved to a directory that does not exist.
+    #
+    # It failed silently because a missing default prompt returns nil rather
+    # than raising, and because a `prompt_override` in settings.yaml bypasses
+    # the default entirely. Hence the regression test.
+    #
+    # NOT keyed off BOUKENSHA_PATH: the loader resolves that from ~/.boukensharc
+    # without exporting it, so it is usually nil, and it does not exist at all
+    # when the bundled gem is used. NOT keyed off BOUKENSHA_DIR either: that is
+    # the user's config directory, and the prompt it owns is the *override*
+    # (see #user_prompts_dir), not the shipped default.
+    PACKAGE_ROOT = File.expand_path("../..", __dir__).freeze
+    PROMPTS_DIR  = File.join(PACKAGE_ROOT, "prompts").freeze
 
     attr_reader :dir, :settings
 

@@ -1,8 +1,22 @@
-# Step 13 — Key Fixes
+# Step 14 — Improved Navigation
 
 ## Build
 gem build boukensha.gemspec
-gem install boukensha-0.13.0.gem
+gem install boukensha-0.14.0.gem
+
+**Step 14 changed nothing in boukensha, and that is the point.** The epic is the
+map: a room graph built from what the agent observed, plus a search over it. It
+lives entirely in the sibling `mud_manager` package, because ADR 0012 says
+boukensha ships no tools and every capability arrives from an MCP server. The
+agent gained "take me to the bakery" as three more tools on a server it already
+spoke to. See [`../mud_manager/README.md`](../mud_manager/README.md).
+
+The only edit here was repointing `test/helper.rb` at the local sibling
+mud_manager, which had been walking up the tree to `week0_explore` and so was
+testing this epic's boukensha against a daemon with none of the new work in it.
+
+Everything below is carried forward from step 13 and still describes how this
+package behaves.
 
 When you call an LLM directly you are responsible for the context window. There is no auto-compacting. This step adds proper token tracking, visual warnings, and automatic compaction so the agent never silently blows past the limit — on top of the MCP-host tool model and terminal UI carried forward from earlier steps.
 
@@ -296,13 +310,13 @@ ruby examples/example.rb
 gem uninstall boukensha
 
 gem build boukensha.gemspec
-gem install boukensha-0.13.0.gem
+gem install boukensha-0.14.0.gem
 
 # launches the charm TUI:
-BOUKENSHA_DIR=~/Sites/Claude-Code-Camp/.boukensha BOUKENSHA_PATH=~/Sites/Claude-Code-Camp/week2_capable/ruby/13_key_fixes/boukensha boukensha
+BOUKENSHA_DIR=~/Sites/Claude-Code-Camp/.boukensha BOUKENSHA_PATH=~/Sites/Claude-Code-Camp/week2_capable/ruby/14_improved_navigation/boukensha boukensha
 
 # plain REPL (no charm dependency required):
-BOUKENSHA_PATH=~/Sites/boukensha/13_key_fixes/boukensha boukensha --no-tui
+BOUKENSHA_PATH=~/Sites/boukensha/14_improved_navigation/boukensha boukensha --no-tui
 ```
 
 ## Tests
